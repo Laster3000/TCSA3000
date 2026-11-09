@@ -27,6 +27,13 @@ Drive se trae aquí, y si algo cambió en los dos lados se guardan ambas version
 - **DESCUBRIMIENTOS** solo para lo importante (impacto ALTO/CRÍTICO y por qué importa); lo menor se retira sin destruirse.
 - **Credenciales**: inventario de dónde hay credenciales en el PC (solo nombres, nunca valores).
 
+## Novedades R006
+- **Respaldos administrados**: 2.º un repositorio GitHub **privado** (bloquea si es público), 3.º Google Drive.
+- **Varias conexiones** guardadas: túneles seguros de OpenAI, direcciones HTTP y Cloudflare; sin autenticación o con token Bearer.
+- **Historial y fallos** en el centro de control y en `tcsa3000_historial`.
+- **Instrucciones de proyecto** con nombre claro, versión y fecha (una vigente por proyecto y tipo).
+- Túnel de ChatGPT robusto: UTF-8 en el adaptador, concesión por canal y errores visibles.
+
 ## Uso
 Toda la carpeta es portátil (por defecto `D:\TCSA3000`).
 

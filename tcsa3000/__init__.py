@@ -1,2 +1,2 @@
-"""TCSA3000 - agente de continuidad (R005). Solo biblioteca estandar de Python."""
-VERSION = "0.5.0-R005"
+"""TCSA3000 - agente de continuidad (R006). Solo biblioteca estandar de Python."""
+VERSION = "0.6.0-R006"

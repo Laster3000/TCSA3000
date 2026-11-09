@@ -55,7 +55,7 @@ class _CRED(ctypes.Structure):
                 ("Persist", ctypes.c_uint32), ("AttributeCount", ctypes.c_uint32), ("Attributes", ctypes.c_void_p),
                 ("TargetAlias", ctypes.c_wchar_p), ("UserName", ctypes.c_wchar_p)]
 
-def importar_de_windows(objetivo: str = "MMC55.AI.TUNNEL.RUNTIME") -> dict:
+def importar_de_windows(objetivo: str = "MMC55.AI.TUNNEL.RUNTIME", destino: str = CRED) -> dict:
     """Copia (accion del usuario) la clave de runtime guardada en el Administrador de credenciales a la boveda DPAPI de TCSA3000.
     No modifica la credencial original."""
     if os.name != "nt": return {"estado": "SOLO_WINDOWS"}
@@ -74,8 +74,8 @@ def importar_de_windows(objetivo: str = "MMC55.AI.TUNNEL.RUNTIME") -> dict:
         except UnicodeDecodeError:
             pass
     if not val: return {"estado": "FORMATO_NO_RECONOCIDO", "objetivo": objetivo}
-    credenciales.guardar(CRED, val, "Clave de runtime del Secure MCP Tunnel (importada de %s)" % objetivo)
-    return {"estado": "IMPORTADA", "desde": objetivo, "credencial": CRED}
+    credenciales.guardar(destino, val, "Clave de runtime del Secure MCP Tunnel (importada de %s)" % objetivo)
+    return {"estado": "IMPORTADA", "desde": objetivo, "credencial": destino}
 
 def _puerto_libre() -> int:
     s = socket.socket(); s.bind(("127.0.0.1", 0)); p = s.getsockname()[1]; s.close(); return p
@@ -94,7 +94,7 @@ def estado(cfg: dict) -> dict:
     return {"instalado": exe().is_file(), "version": json.loads(v.read_text("utf-8")).get("version") if v.is_file() else None,
             "tunnelId": cfg.get("openaiTunnelId") or "", "claveGuardada": credenciales.leer(CRED) is not None if os.name == "nt" else False,
             "enMarcha": vivo, "listo": vivo and _listo(), "panelCliente": (_health + "ui") if (vivo and _health) else None,
-            "escrituraChatGPT": bool(cfg.get("openaiEscritura", True)), "log": _log[-10:]}
+            "escrituraChatGPT": bool(cfg.get("openaiEscritura", True)), "transporte": cfg.get("openaiTransporte", "stdio"), "log": _log[-10:]}
 
 def _leer(proc):
     for line in iter(proc.stdout.readline, ""):
@@ -111,12 +111,27 @@ def iniciar(cfg: dict) -> dict:
     with _lock:
         if _proc is not None and _proc.poll() is None: return {"estado": "YA_EN_MARCHA"}
         hp = _puerto_libre(); _health = "http://127.0.0.1:%d/" % hp; _log.clear()
-        url = "http://127.0.0.1:%d/openai/%s/mcp" % (cfg["port"], secreto())
+        transporte = str(cfg.get("openaiTransporte", "stdio")).lower()
+        if transporte == "stdio":
+            # Usa el adaptador stdio existente y la ruta privada OpenAI en el servicio.
+            # Evita trabajadores HTTP bloqueados; mantiene openaiEscritura y la concesion TCSA.
+            script = Path(__file__).with_name("mcp_stdio.py")
+            comando = '"%s" -B "%s" --openai' % (
+                config.python_exe().replace("\\", "/"), script.as_posix())
+            enlace = ["--mcp.command", comando]
+        elif transporte == "http":
+            # Reversion controlada al transporte anterior, sin cambiar tunnel_id ni claves.
+            url = "http://127.0.0.1:%d/openai/%s/mcp" % (cfg["port"], secreto())
+            enlace = ["--mcp.server-url", "url=" + url]
+        else:
+            return {"estado": "TRANSPORTE_INVALIDO", "transporte": transporte}
         env = dict(os.environ, CONTROL_PLANE_API_KEY=key)
-        _proc = subprocess.Popen([str(exe()), "run", "--control-plane.api-key", "env:CONTROL_PLANE_API_KEY", "--control-plane.tunnel-id", tid,
-                                  "--mcp.server-url", "url=" + url, "--health.listen-addr", "127.0.0.1:%d" % hp],
-                                 stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=env,
-                                 creationflags=SIN_VENTANA, cwd=str(exe().parent))
+        orden = [str(exe()), "run", "--control-plane.api-key", "env:CONTROL_PLANE_API_KEY",
+                 "--control-plane.tunnel-id", tid] + enlace + [
+                 "--health.listen-addr", "127.0.0.1:%d" % hp]
+        _proc = subprocess.Popen(orden, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                 text=True, encoding="utf-8", errors="replace", bufsize=1,
+                                 env=env, creationflags=SIN_VENTANA, cwd=str(exe().parent))
     threading.Thread(target=_leer, args=(_proc,), daemon=True).start()
     for _ in range(90):
         time.sleep(0.5)

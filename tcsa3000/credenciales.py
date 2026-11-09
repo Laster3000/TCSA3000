@@ -44,13 +44,14 @@ def leer(nombre: str) -> str | None:
     return _dpapi(base64.b64decode(rec["cifrado"]), False).decode("utf-8") if rec else None
 
 SISTEMA = ("tcsa3000-servicio", "tcsa3000-remoto", "tcsa3000-openai")
+PREFIJOS_SISTEMA = ("tcsa3000-cx-",)
 
 def listar() -> list:
     return [{"nombre": k, "descripcion": v.get("descripcion", ""), "actualizado": v.get("actualizado"), "valor": "********",
-             "sistema": k in SISTEMA} for k, v in sorted(_load().items())]
+             "sistema": k in SISTEMA or k.startswith(PREFIJOS_SISTEMA)} for k, v in sorted(_load().items())]
 
 def borrar(nombre: str) -> dict:
-    if nombre in SISTEMA:
+    if nombre in SISTEMA or nombre.startswith(PREFIJOS_SISTEMA):
         raise PermissionError("CREDENCIAL_DE_SISTEMA: no se borra (usa 'Rotar' para cambiarla)")
     d = _load(); existed = d.pop(nombre, None) is not None; write_json(_file(), d)
     return {"nombre": nombre, "borrado": existed}

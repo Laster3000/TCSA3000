@@ -10,12 +10,13 @@ if __package__ in (None, ""):
     _aqui = str(Path(__file__).resolve().parent)
     sys.path[:] = [x for x in sys.path if str(Path(x or ".").resolve()) != _aqui]  # evita sombrear la stdlib
     sys.path.insert(0, str(Path(__file__).resolve().parents[1])); __package__ = "tcsa3000"
-from tcsa3000 import VERSION, clients, config, continuidad, espejo, fallback, index, normas, credenciales, sources, tools, tunel, openai_tunel
+from tcsa3000 import VERSION, clients, config, continuidad, espejo, fallback, index, normas, credenciales, sources, tools, tunel, openai_tunel, historial, conexiones, espejo_github
 from tcsa3000.storage import journal, utc, write_json
 
 STARTED = time.time()
 REMOTO = re.compile(r"^/remoto/([A-Za-z0-9_-]{20,})/mcp/?$")
 OPENAI = re.compile(r"^/openai/([A-Za-z0-9_-]{20,})/mcp/?$")
+CONEXION = re.compile(r"^/cx/([a-z0-9][a-z0-9-]{1,39})/([A-Za-z0-9_-]{20,})/mcp/?$")
 
 def state_file():
     return config.data_dir() / "servicio.json"
@@ -59,7 +60,7 @@ class H(BaseHTTPRequestHandler):
             # Descubrimiento OAuth (RFC 9728/8414): este MCP no usa OAuth. 404 = "sin metadatos", que es lo que esperan
             # los clientes (tunnel-client de OpenAI) para continuar sin autenticacion. No da acceso a nada.
             return self._send(404, {"error": "NOT_FOUND"})
-        if u.path == "/mcp" or REMOTO.match(u.path) or OPENAI.match(u.path): return self._send(405, {"error": "USA_POST"}, extra={"Allow": "POST"})
+        if u.path == "/mcp" or REMOTO.match(u.path) or OPENAI.match(u.path) or CONEXION.match(u.path): return self._send(405, {"error": "USA_POST"}, extra={"Allow": "POST"})
         if not self._token_ok(): return self._send(401, {"error": "NO_AUTORIZADO"})
         try:
             if u.path == "/api/estado": return self._send(200, self.server.estado())
@@ -75,27 +76,60 @@ class H(BaseHTTPRequestHandler):
                 return self._send(200, credenciales.inventario([r for r in raices if r] + [cfg["home"]]))
             if u.path == "/api/tunel": return self._send(200, tunel.estado(cfg))
             if u.path == "/api/openai-tunel": return self._send(200, openai_tunel.estado(cfg))
+            if u.path == "/api/conexiones": return self._send(200, {"conexiones": conexiones.estado(cfg), "tunnelClient": openai_tunel.estado(cfg).get("version"),
+                                                               "tunnelClientInstalado": openai_tunel.exe().is_file(), "cloudflaredInstalado": tunel.exe().is_file()})
+            if u.path == "/api/github": return self._send(200, {"config": {"repo": cfg.get("githubRespaldoRepo") or "", "rama": cfg.get("githubRespaldoRama") or ""},
+                                                           "tokenGuardado": credenciales.leer(espejo_github.CRED) is not None, "ultimo": self.server.ultimo_github})
             if u.path == "/api/espejo": return self._send(200, self.server.ultimo_espejo or {"estado": "AUN_NO_EJECUTADO"})
+            if u.path == "/api/historial":
+                q = parse_qs(u.query)
+                return self._send(200, historial.leer(q.get("fallos", ["0"])[0] == "1", q.get("fuente", [""])[0], q.get("texto", [""])[0], int(q.get("limite", ["300"])[0])))
             if u.path == "/api/herramientas": return self._send(200, [{"name": t["name"], "description": t["description"], "escritura": t["name"] in tools.ESCRITURA} for t in tools.TOOLS])
         except Exception as e:
+            historial.registrar_error("panel:GET " + u.path, str(e))
             return self._send(500, {"error": str(e)})
         self._send(404, {"error": "NO_ENCONTRADO"})
-    def _remoto(self, secreto_url: str, canal: str = "cloudflare"):
+    def _remoto(self, secreto_url: str, canal: str = "cloudflare", cid: str | None = None):
         cfg = self.server.cfg
-        esperado = openai_tunel.secreto() if canal == "openai" else tunel.secreto()
+        if cid:
+            try: cx = conexiones.obtener(cid)
+            except LookupError: time.sleep(0.5); return self._send(404, {"error": "NO_ENCONTRADO"})
+            esperado = conexiones.secreto(cid)
+        else:
+            esperado = openai_tunel.secreto() if canal == "openai" else tunel.secreto()
         if not hmac.compare_digest(secreto_url, esperado):
             time.sleep(0.5); return self._send(404, {"error": "NO_ENCONTRADO"})
-        escribe = cfg.get("openaiEscritura", True) if canal == "openai" else cfg.get("remotoEscritura")
+        if cid:
+            if cx.get("auth") == "oauth":
+                return self._send(501, {"error": "OAUTH_NO_DISPONIBLE", "ayuda": "Esta conexion esta guardada con OAuth, que TCSA3000 aun no emite. Usa 'ninguna' o 'token'."})
+            if cx.get("auth") == "token":
+                tok = credenciales.leer("tcsa3000-token-" + cid) or ""
+                if not tok or not hmac.compare_digest(self.headers.get("Authorization", ""), "Bearer " + tok):
+                    historial.registrar_error("conexion:" + cid, "Token Bearer ausente o incorrecto")
+                    return self._send(401, {"error": "TOKEN_REQUERIDO"}, extra={"WWW-Authenticate": "Bearer"})
+            escribe = bool(cx.get("escritura")); canal = "cx:" + cid
+        else:
+            escribe = cfg.get("openaiEscritura", True) if canal == "openai" else cfg.get("remotoEscritura")
         modo = "REMOTO_ESCRITURA" if escribe else "REMOTO_LECTURA"
         try:
             body = self._body()
         except Exception:
             return self._send(400, {"error": "JSON_INVALIDO"})
         msgs = body if isinstance(body, list) else [body]
+        out = []
         for m in msgs:
-            if isinstance(m, dict) and m.get("method") == "tools/call":
-                journal(config.data_dir() / "remoto.journal.jsonl", "REMOTO_TOOL", {"name": (m.get("params") or {}).get("name"), "modo": modo, "canal": canal})
-        out = [r for r in (tools.handle_jsonrpc(m, cfg, modo) for m in msgs if isinstance(m, dict)) if r]
+            if not isinstance(m, dict): continue
+            r = tools.handle_jsonrpc(m, cfg, modo, "remoto:" + canal)
+            if m.get("method") == "tools/call":
+                res = (r or {}).get("result") or {}
+                fallo = bool(res.get("isError")) or "error" in (r or {})
+                txt = ""
+                if fallo:
+                    try: txt = (res.get("content") or [{}])[0].get("text", "")[:300] if res else str(r.get("error"))[:300]
+                    except Exception: txt = "?"
+                journal(config.data_dir() / "remoto.journal.jsonl", "REMOTO_TOOL", {"name": (m.get("params") or {}).get("name"), "modo": modo, "canal": canal,
+                        "agente": ((m.get("params") or {}).get("arguments") or {}).get("agente"), "ok": not fallo, "error": txt or None})
+            if r: out.append(r)
         if not out: return self._send(202, b"", "text/plain")
         return self._send(200, out if isinstance(body, list) else out[0])
     def do_POST(self):
@@ -104,6 +138,8 @@ class H(BaseHTTPRequestHandler):
         if m: return self._remoto(m.group(1))
         m = OPENAI.match(u.path)
         if m: return self._remoto(m.group(1), "openai")
+        m = CONEXION.match(u.path)
+        if m: return self._remoto(m.group(2), cid=m.group(1))
         if not self._token_ok() or not self._origin_ok(): return self._send(401, {"error": "NO_AUTORIZADO"})
         try:
             body = self._body()
@@ -135,7 +171,21 @@ class H(BaseHTTPRequestHandler):
                 return self._send(200, sources.proponer(body.get("tipo"), body.get("titulo"), body.get("projectId"), body.get("resumen"), body.get("fuente", ""), "panel"))
             if u.path == "/api/reindexar": return self._send(200, index.reindex(cfg))
             if u.path == "/api/respaldo": return self._send(200, self.server.respaldar())
+            if u.path == "/api/github/comprobar": return self._send(200, espejo_github.comprobar(self.server.cfg))
+            if u.path == "/api/github/token":
+                v = (body.get("valor") or "").strip()
+                if len(v) < 20: raise ValueError("TOKEN_INVALIDO")
+                return self._send(200, credenciales.guardar(espejo_github.CRED, v, "Token del respaldo GitHub privado (Contents RW, un repositorio)"))
+            if u.path == "/api/github/sincronizar":
+                self.server.ultimo_github = espejo_github.sincronizar(self.server.cfg); return self._send(200, self.server.ultimo_github)
             if u.path == "/api/espejo/verificar": return self._send(200, espejo.verificar(cfg))
+            if u.path == "/api/conexiones/guardar": return self._send(200, conexiones.guardar(body))
+            if u.path == "/api/conexiones/borrar": return self._send(200, conexiones.borrar(body.get("id", "")))
+            if u.path == "/api/conexiones/iniciar": return self._send(200, conexiones.iniciar(self.server.cfg, body.get("id", "")))
+            if u.path == "/api/conexiones/parar": return self._send(200, conexiones.parar(body.get("id", "")))
+            if u.path == "/api/conexiones/importar-clave":
+                c = conexiones.obtener(body.get("id", ""))
+                return self._send(200, openai_tunel.importar_de_windows(body.get("objetivo") or "MMC55.AI.TUNNEL.RUNTIME", c.get("credencial") or "openai-runtime-" + c["id"]))
             if u.path == "/api/openai-tunel/descargar": return self._send(200, openai_tunel.descargar())
             if u.path == "/api/openai-tunel/importar": return self._send(200, openai_tunel.importar_de_windows())
             if u.path == "/api/openai-tunel/clave":
@@ -153,6 +203,7 @@ class H(BaseHTTPRequestHandler):
             if u.path == "/api/reiniciar":
                 self._send(200, {"estado": "REINICIANDO"}); threading.Thread(target=self.server.reiniciar, daemon=True).start(); return
         except Exception as e:
+            historial.registrar_error("panel:POST " + u.path, "%s: %s" % (type(e).__name__, e))
             return self._send(400, {"error": "%s: %s" % (type(e).__name__, e)})
         self._send(404, {"error": "NO_ENCONTRADO"})
 
@@ -163,6 +214,7 @@ class Server(ThreadingHTTPServer):
         super().__init__((cfg["host"], cfg["port"]), H)
         self._stop = threading.Event()
         self.ultimo_espejo = None
+        self.ultimo_github = None
     def registrado(self, p):
         try:
             e = json.loads(Path(p).read_text("utf-8-sig")).get("mcpServers", {}).get("tcsa3000")
@@ -174,9 +226,10 @@ class Server(ThreadingHTTPServer):
         return {"servicio": "EN_MARCHA", "version": VERSION, "pid": os.getpid(), "puerto": self.port, "ubicacion": self.cfg["home"],
                 "tcsaRoot": self.cfg["tcsaRoot"], "tcsaAccesible": Path(self.cfg["tcsaRoot"]).is_dir(), "respaldoDrive": self.cfg["respaldoDir"],
                 "respaldoAccesible": Path(self.cfg["respaldoDir"]).parent.exists(), "ultimoEspejo": (self.ultimo_espejo or {}).get("at"),
+                "github": {"repo": self.cfg.get("githubRespaldoRepo") or None, "ultimo": (self.ultimo_github or {}).get("at"), "estado": (self.ultimo_github or {}).get("estado")},
                 "inicio": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(STARTED)), "python": sys.executable}
     def guardar_config(self, body: dict):
-        allowed = {"tcsaRoot", "respaldoDir", "fallbackDir", "port", "fallbackEveryMinutes", "allowlist", "remotoEscritura", "tunelAlArrancar", "tunelHost", "openaiTunnelId", "openaiEscritura", "openaiTunelAlArrancar"}
+        allowed = {"tcsaRoot", "respaldoDir", "fallbackDir", "port", "fallbackEveryMinutes", "allowlist", "remotoEscritura", "tunelAlArrancar", "tunelHost", "openaiTunnelId", "openaiEscritura", "openaiTunelAlArrancar", "githubRespaldoRepo", "githubRespaldoRama"}
         bad = set(body) - allowed
         if bad: raise ValueError("CLAVES_NO_PERMITIDAS:" + ",".join(sorted(bad)))
         p = config.config_path(); cur = json.loads(p.read_text("utf-8-sig")) if p.exists() else {}
@@ -187,15 +240,24 @@ class Server(ThreadingHTTPServer):
         return {"guardado": True, "config": self.cfg, "nota": "Cambiar el puerto requiere reiniciar el servicio."}
     def respaldar(self):
         fb = fallback.exportar(self.cfg, self.estado())
+        if espejo_github.configurado(self.cfg):  # 2o respaldo: GitHub privado
+            try: self.ultimo_github = espejo_github.sincronizar(self.cfg)
+            except Exception as e: self.ultimo_github = {"estado": "ERROR", "error": str(e), "at": utc()}
+            if self.ultimo_github.get("estado") != "OK":
+                historial.registrar_error("respaldo:github", json.dumps(self.ultimo_github, ensure_ascii=False)[:600])
         try: self.ultimo_espejo = espejo.sincronizar(self.cfg)
         except Exception as e: self.ultimo_espejo = {"estado": "ERROR", "error": str(e), "at": utc()}
-        journal(config.data_dir() / "servicio.journal.jsonl", "RESPALDO", {"fallback": fb.get("estado"), "espejo": {k: self.ultimo_espejo.get(k) for k in ("estado", "subidosADrive", "importadosDeDrive", "conflictos")}})
-        return {"contextoFallback": fb, "espejoDrive": self.ultimo_espejo}
+        if (self.ultimo_espejo or {}).get("estado") not in ("OK", None):
+            historial.registrar_error("respaldo:drive", json.dumps(self.ultimo_espejo, ensure_ascii=False)[:600])
+        journal(config.data_dir() / "servicio.journal.jsonl", "RESPALDO", {"fallback": fb.get("estado"),
+                "github": {k: (self.ultimo_github or {}).get(k) for k in ("estado", "subidos", "importados", "commit")}, "espejo": {k: self.ultimo_espejo.get(k) for k in ("estado", "subidosADrive", "importadosDeDrive", "conflictos")}})
+        return {"contextoFallback": fb, "github": self.ultimo_github, "espejoDrive": self.ultimo_espejo}
     def apagar(self):
         time.sleep(0.3); journal(config.data_dir() / "servicio.journal.jsonl", "APAGADO", {"pid": os.getpid()})
         for t in (tunel, openai_tunel):
             try: t.parar(self.cfg)
             except Exception: pass
+        conexiones.parar_todas()
         self._stop.set(); self.shutdown()
     def reiniciar(self):
         lanzar(esperar=True); self.apagar()
@@ -205,9 +267,11 @@ class Server(ThreadingHTTPServer):
         if self.cfg.get("tunelAlArrancar"):
             try: tunel.iniciar(self.cfg)
             except Exception: pass
-        if self.cfg.get("openaiTunelAlArrancar"):
-            try: openai_tunel.iniciar(self.cfg)
-            except Exception as e: journal(config.data_dir() / "servicio.journal.jsonl", "OPENAI_TUNEL_ERROR", {"error": str(e)})
+        try:
+            conexiones.migrar_desde_config(self.cfg)
+            conexiones.arrancar_automaticas(self.cfg)
+        except Exception as e:
+            historial.registrar_error("conexiones", str(e))
         nxt = time.time() + 5
         while not self._stop.wait(1):
             if time.time() >= nxt:

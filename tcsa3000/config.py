@@ -13,6 +13,8 @@ DEFAULTS = {
     "openaiTunnelId": "",
     "openaiEscritura": True,
     "openaiTunelAlArrancar": False,
+    "githubRespaldoRepo": "",
+    "githubRespaldoRama": "",
     "host": "127.0.0.1",
     "port": 18730,
     "fallbackEveryMinutes": 10,

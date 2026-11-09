@@ -27,7 +27,7 @@ DOCUMENTOS = {
     "reanudacion": "03-PROYECTOS/TCSA-CORE/PROTOCOLO-REANUDACION-R2.md", "economia": "10-EFICIENCIA-IA/POLITICA-P0.md",
     "lectura-progresiva": "10-EFICIENCIA-IA/LECTURA-PROGRESIVA-P0.md", "lista": "07-LISTA/README.md",
     "descubrimientos": "08-DESCUBRIMIENTOS/README.md", "menu": "02-CATALOGO/MENU-CANDIDATO.md",
-    "bootstrap": "01-INSTRUCCIONES/BOOTSTRAP-CHATGPT-CLAUDE-R6.txt", "activar-ia": "01-INSTRUCCIONES/COMO-ACTIVAR-CHATGPT-CLAUDE.md",
+    "bootstrap": "01-INSTRUCCIONES/TCSA - Arranque TCSA3000 (cualquier IA) - v7 (2026-11-09).txt", "activar-ia": "01-INSTRUCCIONES/COMO-ACTIVAR-CHATGPT-CLAUDE.md",
 }
 _locks: dict = {}
 _glock = threading.Lock()
@@ -133,25 +133,30 @@ def _lease_activo(r: Path, pid: str):
         return None
     return l
 
-def _comprobar_lease(r: Path, pid: str, lease: str | None, agente: str | None):
+def _comprobar_lease(r: Path, pid: str, lease: str | None, agente: str | None, canal: str = "local"):
     l = _lease_activo(r, pid)
+    if l and canal != "local" and l.get("canal") == canal:
+        return  # mismo cliente remoto (p.ej. el espacio de ChatGPT tras el tunel): cada turno puede cambiar de nombre
+    if l and agente and l.get("agente") == agente:
+        return
     if l and lease != l.get("token"):
         raise PermissionError("PROYECTO_EN_USO_POR:%s hasta %s (abre el proyecto o espera)" % (l.get("agente"), l.get("expira")))
 
-def abrir_proyecto(cfg, pid: str, agente: str, minutos: int = 120, forzar: bool = False, motivo: str = "") -> dict:
+def abrir_proyecto(cfg, pid: str, agente: str, minutos: int = 60, forzar: bool = False, motivo: str = "", canal: str = "local") -> dict:
     r = root(cfg); _entrada(r, pid)
     agente = (agente or "IA-SIN-NOMBRE")[:80]
     with _lock("lease:" + pid):
         act = _lease_activo(r, pid)
-        if act and act.get("agente") != agente and not forzar:
+        mismo = act and (act.get("agente") == agente or (canal != "local" and act.get("canal") == canal))
+        if act and not mismo and not forzar:
             return {"estado": "PROYECTO_EN_USO", "agente": act.get("agente"), "expira": act.get("expira"),
                     "ayuda": "Otro agente trabaja en este proyecto. Espera, o usa forzar=true con motivo (queda registrado)."}
         p = _bp(r, pid) / "LEASE.json"
         old = p.read_bytes() if p.exists() else None
         token = uuid.uuid4().hex
-        lease = {"schema": "tcsa3000.lease.v1", "projectId": pid, "agente": agente, "token": token, "desde": utc(),
+        lease = {"schema": "tcsa3000.lease.v1", "projectId": pid, "agente": agente, "canal": canal, "token": token, "desde": utc(),
                  "expira": (dt.datetime.now(dt.timezone.utc) + dt.timedelta(minutes=max(5, min(int(minutos), 720)))).isoformat(),
-                 "forzado": bool(act and forzar), "motivo": motivo[:300], "anterior": act and {k: act.get(k) for k in ("agente", "expira")},
+                 "forzado": bool(act and forzar and not mismo), "renovado": bool(mismo), "motivo": motivo[:300], "anterior": act and {k: act.get(k) for k in ("agente", "expira")},
                  "aviso": "Drive no es mutex: esta concesion coordina agentes que usan TCSA3000."}
         _cas(r, p, old, _jb(lease), _op_id(pid, "LEASE"))
     _journal(cfg, "ABRIR_PROYECTO", {"projectId": pid, "agente": agente, "forzado": lease["forzado"]})
@@ -159,13 +164,13 @@ def abrir_proyecto(cfg, pid: str, agente: str, minutos: int = 120, forzar: bool 
                                               "uso": "Pasa lease=<token> en cierres, operaciones y conversaciones de este proyecto."}
     return out
 
-def cerrar_proyecto(cfg, pid: str, lease: str) -> dict:
+def cerrar_proyecto(cfg, pid: str, lease: str, canal: str = "local") -> dict:
     r = root(cfg); p = _bp(r, pid) / "LEASE.json"
     with _lock("lease:" + pid):
         if not p.is_file():
             return {"estado": "SIN_CONCESION"}
         old = p.read_bytes(); l = json.loads(old)
-        if l.get("token") != lease:
+        if l.get("token") != lease and not (canal != "local" and l.get("canal") == canal):
             raise PermissionError("LEASE_NO_COINCIDE")
         l["liberado"] = utc(); _cas(r, p, old, _jb(l), _op_id(pid, "LEASE"))
     return {"estado": "LIBERADO", "projectId": pid}
@@ -390,7 +395,7 @@ def _nuevo_checkpoint(r: Path, pid: str, latest_old: bytes | None, payload: dict
 
 # ---------------------------------------------------------------- cierres
 def cierre(cfg, pid: str, nivel: str, resumen: str, resultado: str = "", pruebas=None, evidencias=None, bloqueos=None,
-           next_action: str = "", revision_id: str = "", estado: str = "", decisiones=None, hitos=None, agente: str = "", lease: str | None = None) -> dict:
+           next_action: str = "", revision_id: str = "", estado: str = "", decisiones=None, hitos=None, agente: str = "", lease: str | None = None, canal: str = "local") -> dict:
     r = root(cfg); e = _entrada(r, pid); nivel = (nivel or "C1").upper()
     if nivel == "C0":
         return {"nivel": "C0", "estado": "SIN_ESCRITURA", "nota": "Consulta: no se guarda nada (protocolo R2)."}
@@ -401,7 +406,7 @@ def cierre(cfg, pid: str, nivel: str, resumen: str, resultado: str = "", pruebas
         raise ValueError("NIVEL_INVALIDO (C0, C1, C2, C3)")
     if not (resumen or "").strip() or not (next_action or "").strip():
         raise ValueError("CIERRE_REQUIERE_RESUMEN_Y_NEXT_ACTION")
-    _comprobar_lease(r, pid, lease, agente)
+    _comprobar_lease(r, pid, lease, agente, canal)
     op = _op_id(pid, nivel); now = utc()
     rec = {"schema": "tcsa.closure.v2", "closureId": op, "nivel": nivel, "projectId": pid, "createdAtUtc": now, "agente": agente[:80],
            "revisionId": revision_id or None, "resumen": resumen[:6000], "resultado": resultado[:4000], "pruebas": list(pruebas or [])[:50],
@@ -448,8 +453,8 @@ def cierre(cfg, pid: str, nivel: str, resumen: str, resultado: str = "", pruebas
     _journal(cfg, "CIERRE", {"projectId": pid, "closureId": op, "sha256": s})
     return out
 
-def operacion(cfg, pid: str, operation_id: str, fase: str, detalle: dict | None = None, estado: str = "SUCCEEDED", agente: str = "", lease: str | None = None) -> dict:
-    r = root(cfg); _entrada(r, pid); _comprobar_lease(r, pid, lease, agente)
+def operacion(cfg, pid: str, operation_id: str, fase: str, detalle: dict | None = None, estado: str = "SUCCEEDED", agente: str = "", lease: str | None = None, canal: str = "local") -> dict:
+    r = root(cfg); _entrada(r, pid); _comprobar_lease(r, pid, lease, agente, canal)
     if not ANY_ID.fullmatch(operation_id or ""):
         raise ValueError("OPERATION_ID_INVALIDO")
     fase = (fase or "").upper(); d = _bp(r, pid) / "OPERACIONES"
@@ -619,8 +624,8 @@ def desc_actualizar(cfg, item_id: str, nota: str, estado: str = "", agente: str 
 # ---------------------------------------------------------------- conversaciones y sincronizacion
 COBERTURAS = ("LITERAL", "CITA", "RESUMEN", "RECONSTRUCCION", "UNKNOWN_GAP")
 
-def guardar_conversacion(cfg, pid: str, conversacion: str, plataforma: str, segmentos: list, agente: str = "", lease: str | None = None) -> dict:
-    r = root(cfg); _entrada(r, pid); _comprobar_lease(r, pid, lease, agente)
+def guardar_conversacion(cfg, pid: str, conversacion: str, plataforma: str, segmentos: list, agente: str = "", lease: str | None = None, canal: str = "local") -> dict:
+    r = root(cfg); _entrada(r, pid); _comprobar_lease(r, pid, lease, agente, canal)
     if not ANY_ID.fullmatch(conversacion or ""):
         raise ValueError("CONVERSATION_ID_INVALIDO (usa el ID nativo o un alias LOCAL-...)")
     segs = []

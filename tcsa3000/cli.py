@@ -55,9 +55,13 @@ def respaldo(cfg):
     if _health(cfg):
         d = _post(cfg, "/api/respaldo")
     else:
-        d = {"contextoFallback": fallback.exportar(cfg, estado(cfg)), "espejoDrive": espejo.sincronizar(cfg)}
+        from tcsa3000 import espejo_github
+        d = {"contextoFallback": fallback.exportar(cfg, estado(cfg)), "github": espejo_github.sincronizar(cfg) if espejo_github.configurado(cfg) else None,
+             "espejoDrive": espejo.sincronizar(cfg)}
     e = d["espejoDrive"]
+    g = d.get("github") or {}
     txt = ("Respaldo al dia: %d subidos a Drive, %d traidos de Drive" % (e["subidosADrive"], e["importadosDeDrive"])) if e.get("estado") == "OK" else ("Respaldo " + str(e.get("motivo") or e.get("estado")))
+    if g: txt += "; GitHub: " + (("%d subidos" % g.get("subidos", 0)) if g.get("estado") == "OK" else str(g.get("estado")))
     return {"estado": txt, "detalle": d}
 
 def panel(cfg, pestana=""):

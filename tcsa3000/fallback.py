@@ -21,6 +21,7 @@ def construir(cfg: dict, estado_servicio: dict | None = None) -> dict:
 def a_markdown(s: dict) -> str:
     L = ["# TCSA3000 - CONTEXTO DE RESPALDO", "Generado: %s | Version %s | Ubicacion: %s" % (s["generado"], s["version"], s["ubicacion"]), "", s["aviso"], "",
          "## Si eres una IA sin acceso al MCP de TCSA3000",
+         "Orden de fuentes: 1) MCP tcsa3000  2) repositorio GitHub PRIVADO de respaldo (conector de GitHub)  3) este espejo de Google Drive.",
          "1. Lee INSTRUCCIONES-MAESTRAS.md y MANIFEST-INSTRUCCIONES.json (raiz TCSA) y LEEME-PRIMERO.md.",
          "2. Del proyecto pedido, lee solo su capsula (03-PROYECTOS/<ID>/CAPSULA-PROYECTO.json) y 00-CHECKPOINTS/BY-PROJECT/<ID>/LATEST.json + su checkpoint y CIERRES recientes.",
          "3. Para guardar sin MCP: crea un fichero NUEVO en 00-CHECKPOINTS/BY-PROJECT/<ID>/CIERRES/ (nunca sobrescribas indices); TCSA3000 lo vera.",

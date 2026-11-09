@@ -40,15 +40,14 @@ def registrar(path: Path, quitar: bool = False) -> dict:
             "aviso": "Cierra la app de Claude por completo antes y vuelve a abrirla despues; si esta abierta puede sobrescribir el archivo."}
 
 def bootstrap_web() -> str:
-    """Texto para IAs sin MCP local (ChatGPT/Claude web): leen el TCSA y el respaldo de TCSA3000 en Drive."""
-    return ("TCSA | ARRANQUE CON TCSA3000\n"
-            "Si tienes la herramienta MCP tcsa3000: llama primero a tcsa3000_arranque y sigue sus indicaciones "
-            "(abrir_proyecto -> trabajo -> cierre C1/C2 -> soltar_proyecto).\n"
-            "Si NO la tienes: en Google Drive, carpeta TCSA, lee INSTRUCCIONES-MAESTRAS.md + MANIFEST-INSTRUCCIONES.json, "
-            "LEEME-PRIMERO.md y 03-PROYECTOS/TCSA3000/ESTADO-FALLBACK/CONTEXTO-TCSA3000.md (menu, proyectos, LISTA y DESCUBRIMIENTOS). "
-            "Del proyecto pedido lee solo su capsula y 00-CHECKPOINTS/BY-PROJECT/<ID>/LATEST.json. "
-            "Para guardar sin MCP crea un fichero NUEVO en 00-CHECKPOINTS/BY-PROJECT/<ID>/CIERRES/ y no sobrescribas indices. "
-            "Respeta LEASE.json (un agente por proyecto). No repetir SUCCEEDED; reconciliar UNKNOWN. Sin lectura remota: PENDING_SYNC.\n")
+    """Texto de arranque vigente (registro de instrucciones); si no esta, el minimo."""
+    try:
+        from . import instrucciones
+        v = instrucciones.vigente("TCSA", "arranque")
+        if v: return v["texto"]
+    except Exception:
+        pass
+    return ("TCSA | ARRANQUE: usa el MCP tcsa3000 (tcsa3000_arranque). Sin MCP: 2) repositorio GitHub privado de respaldo, 3) Drive TCSA.\n")
 
 def snippet(token: str | None = None, port: int | None = None) -> dict:
     """Configuracion lista para copiar en cualquier cliente MCP."""
