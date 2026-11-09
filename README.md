@@ -1,8 +1,11 @@
 # TCSA3000
 
 TCSA3000 es el **TCSA en forma de programa**: un servidor MCP local y portátil que da a cualquier IA
-(Claude Desktop, Claude Code, Codex, Cursor, Windsurf, VS Code, Gemini CLI...) la continuidad TCSA completa
-sobre la misma carpeta TCSA de siempre, sin copias paralelas.
+(Claude Desktop, Claude Code, Codex, Cursor, Windsurf, VS Code, Gemini CLI y ChatGPT por túnel seguro) la continuidad TCSA completa.
+
+**Dónde vive la información:** dentro de la propia carpeta de TCSA3000 (`TCSA\`). Google Drive es solo un
+**espejo de respaldo** que se actualiza solo cada pocos minutos: nunca se borra nada allí, lo que una IA web cree en
+Drive se trae aquí, y si algo cambió en los dos lados se guardan ambas versiones.
 
 ## Qué hace
 - **Arranque**: verifica el maestro TCSA (SHA contra el manifiesto), LEEME-PRIMERO y el menú TCSA CONTROL CENTER.
@@ -15,7 +18,12 @@ sobre la misma carpeta TCSA de siempre, sin copias paralelas.
 - **Economía P0**: enrutador `route_work` del TCSA.
 - **Un agente por proyecto** (concesión LEASE); proyectos distintos pueden trabajarse a la vez.
 - **Nunca borra**: los índices se cambian por CAS sobre bytes con preimagen en `99-RECUPERACION/TCSA3000/`.
-- **Respaldo** automático en Drive para IAs sin MCP o si el servicio cae (modo degradado de solo lectura).
+- **Respaldo** automático en Drive (espejo) para IAs sin MCP o si el servicio cae (modo degradado de solo lectura).
+- **ChatGPT**: túnel HTTPS de Cloudflare hacia una dirección secreta que solo expone el MCP (solo lectura por defecto;
+  `cloudflared` se descarga únicamente si lo pides, de la publicación oficial, y se comprueba su firma).
+- **LISTA ANTIGUA** visible entera (histórico no vigente, solo consulta).
+- **DESCUBRIMIENTOS** solo para lo importante (impacto ALTO/CRÍTICO y por qué importa); lo menor se retira sin destruirse.
+- **Credenciales**: inventario de dónde hay credenciales en el PC (solo nombres, nunca valores).
 
 ## Uso
 Toda la carpeta es portátil (por defecto `D:\TCSA3000`).

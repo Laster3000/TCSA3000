@@ -7,7 +7,7 @@ from .storage import atomic_write, sha_bytes, utc
 
 def construir(cfg: dict, estado_servicio: dict | None = None) -> dict:
     snap = {"schema": "tcsa3000.fallback.v1", "generado": utc(), "version": VERSION, "ubicacion": cfg["home"],
-            "aviso": "SNAPSHOT para respaldo. No es estado vivo ni autoridad. Verificar contra TCSA y ejecutores originales.",
+            "aviso": "SNAPSHOT de respaldo. La continuidad canonica vive en TCSA3000 (D:\\TCSA3000\\TCSA); Drive es su espejo. No es estado vivo de ejecutores.",
             "servicio": estado_servicio or {}, "directrices": normas.leer()["texto"]}
     for k, fn in (("catalogo", lambda: sources.catalogo(cfg)), ("menu", lambda: continuidad.menu(cfg)),
                   ("maestro", lambda: continuidad.verificar_maestro(continuidad.root(cfg))), ("lista", lambda: sources.lista(cfg)),
@@ -47,8 +47,9 @@ def a_markdown(s: dict) -> str:
 def exportar(cfg: dict, estado_servicio: dict | None = None) -> dict:
     s = construir(cfg, estado_servicio)
     d = Path(cfg["fallbackDir"])
-    if not d.parent.exists():
-        return {"estado": "BLOQUEADO", "motivo": "CARPETA_DRIVE_NO_ACCESIBLE:" + str(d.parent)}
+    if not d.parent.parent.exists():
+        return {"estado": "BLOQUEADO", "motivo": "CARPETA_NO_ACCESIBLE:" + str(d.parent)}
+    d.mkdir(parents=True, exist_ok=True)
     j = (json.dumps(s, ensure_ascii=False, indent=1) + "\n").encode("utf-8"); m = a_markdown(s).encode("utf-8")
     atomic_write(d / "CONTEXTO-TCSA3000.json", j); atomic_write(d / "CONTEXTO-TCSA3000.md", m)
-    return {"estado": "ESCRITO_LOCAL_PENDING_CLOUD_READBACK", "carpeta": str(d), "jsonSha256": sha_bytes(j), "mdSha256": sha_bytes(m), "at": s["generado"]}
+    return {"estado": "GUARDADO (se copia a Drive con el espejo)", "carpeta": str(d), "jsonSha256": sha_bytes(j), "mdSha256": sha_bytes(m), "at": s["generado"]}

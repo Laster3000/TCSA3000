@@ -1,4 +1,4 @@
-"""Continuidad TCSA completa sobre la carpeta TCSA (Drive): arranque, menu, reanudar, cierres C0-C3, operaciones
+"""Continuidad TCSA completa sobre la carpeta TCSA canonica (D:\\TCSA3000\\TCSA; Drive es solo respaldo espejo): arranque, menu, reanudar, cierres C0-C3, operaciones
 INTENT/COMMIT, proyectos nuevos, LISTA y DESCUBRIMIENTOS (GUARDAR/AMPLIAR), conversaciones, sincronizacion y
 concesiones (lease) por proyecto.
 
@@ -8,7 +8,7 @@ Reglas de escritura (NORMAS-TCSA3000 v2):
   en 99-RECUPERACION/TCSA3000/<operacion>/ y lectura posterior.
 - Cada proyecto solo escribe en su ambito; en el catalogo solo se toca su propia entrada.
 - 09-HISTORICO, las normas maestras y el manifiesto son de solo lectura.
-- Escribir en la carpeta sincronizada deja PENDING_CLOUD_READBACK hasta confirmar con lectura remota (confirmar_sync)."""
+- El respaldo en Drive se actualiza con espejo.py; confirmar_sync registra una lectura remota real."""
 from __future__ import annotations
 import datetime as dt, json, os, re, threading, uuid
 from pathlib import Path
@@ -17,7 +17,7 @@ from .storage import sha_bytes, utc
 
 PID = re.compile(r"[A-Z0-9][A-Z0-9-]{1,39}\Z")
 ANY_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{1,79}\Z")
-PENDIENTE = "ESCRITO_LOCAL_PENDING_CLOUD_READBACK"
+PENDIENTE = "GUARDADO_EN_TCSA3000 (respaldo en Drive en el proximo espejo)"
 LISTA_ESTADOS = ("PROPUESTO", "ACEPTADO", "EN_CURSO", "CONSTRUIDO", "PROBADO", "INSTALADO", "BLOQUEADO", "DESCARTADO", "COMPLETO")
 DESC_ESTADOS = ("HIPOTESIS", "OBSERVADO", "PROBADO", "INVALIDADO", "SUPERADO")
 SOLO_LECTURA = ("09-HISTORICO/", "INSTRUCCIONES-MAESTRAS.md", "MANIFEST-INSTRUCCIONES.json")
@@ -184,8 +184,15 @@ def menu(cfg) -> dict:
     proy = []
     for x in c.get("projects", []):
         l = _lease_activo(r, x["projectId"]) if PID.fullmatch(x.get("projectId", "")) else None
+        na = x.get("nextAction")
+        if not na and x.get("capsule"):
+            try: na = _read_json(_rel(r, x["capsule"])).get("nextAction")
+            except (OSError, ValueError): na = None
+        if not na and x.get("continuityIndex"):
+            try: na = _read_json(_rel(r, x["continuityIndex"])).get("nextAction")
+            except (OSError, ValueError): na = None
         proy.append({"projectId": x.get("projectId"), "nombre": x.get("name"), "prioridad": x.get("priority"), "estado": x.get("status"),
-                     "nextAction": x.get("nextAction") or (x.get("tcsa3000") or {}).get("nextAction"), "enUsoPor": l and l.get("agente")})
+                     "nextAction": na, "enUsoPor": l and l.get("agente")})
     return {"titulo": "TCSA CONTROL CENTER", "tipo": "SNAPSHOT_NO_ESTADO_VIVO", "catalogoSha256": sha_bytes(p.read_bytes()),
             "proyectos": proy, "opciones": ["LISTA", "DESCUBRIMIENTOS", "CHECKPOINTS", "ESTADO", "NUEVO PROYECTO", "CONSULTA GENERAL", "LISTA ANTIGUA (solo si se pide)"],
             "regla": "Mostrar el menu solo ante saludo aislado o MENU; con un encargo concreto, proceder sin menu."}
@@ -225,6 +232,8 @@ def reanudar(cfg, pid: str) -> dict:
     cd = _bp(r, pid) / "CIERRES"
     out["ultimosCierres"] = [_read_json(p) for p in sorted(cd.glob("*.json"))[-3:]] if cd.is_dir() else []
     out["lease"] = (lambda l: l and {"agente": l.get("agente"), "expira": l.get("expira")})(_lease_activo(r, pid))
+    if "capsula" in out and not out["capsula"].get("nextAction"):
+        out["capsula"]["nextAction"] = (out.get("reanudarTCSA") or {}).get("nextAction")
     out["aviso"] = "Antes de ejecutar efectos: journal/lease/recibos VIVOS del ejecutor original. SUCCEEDED no se repite."
     return out
 
@@ -259,6 +268,71 @@ def enrutar(cfg, tarea: dict) -> dict:
 def lista_antigua(cfg, texto: str, contenido: bool = False, limite: int = 20) -> dict:
     res = legado.archivo_historico(cfg).query_archive(root(cfg), texto, max(1, min(int(limite), 100)), contenido)
     return {"aviso": "HISTORICO NO VIGENTE: LISTA ANTIGUA de MMC. Solo consulta; no crea fichas ni estados.", "consulta": texto, "resultados": res}
+
+LA_ZIP = "09-HISTORICO/LISTA-ANTIGUA-MMC/LISTA-ORIGINAL-ARCHIVO.zip"
+
+def _a_bytes(t: str) -> bytes:
+    out = bytearray()
+    for c in t:
+        try: out += c.encode("cp1252")
+        except UnicodeEncodeError:
+            out += bytes([ord(c)]) if ord(c) < 256 else c.encode("utf-8")
+    return bytes(out)
+
+def _reparar(t: str) -> str:
+    """Repara texto con codificacion doble (mojibake) SOLO para mostrarlo; el original del ZIP no se toca."""
+    t = str(t or "")
+    for _ in range(12):
+        if not any(c in t for c in "ÃÂâ€Æ"):
+            break
+        try:
+            n = _a_bytes(t).decode("utf-8")
+        except UnicodeDecodeError:
+            break
+        if n == t: break
+        t = n
+    return t
+
+def _texto(b: bytes) -> str:
+    try: return b.decode("utf-8-sig")
+    except UnicodeDecodeError: return b.decode("cp1252", errors="replace")
+
+def _zip_antigua(cfg):
+    import zipfile
+    p = root(cfg) / LA_ZIP
+    if not p.is_file():
+        raise FileNotFoundError("LISTA_ANTIGUA_NO_ENCONTRADA:" + LA_ZIP)
+    return zipfile.ZipFile(p)
+
+def lista_antigua_ver(cfg, texto: str = "") -> dict:
+    """Todas las fichas de la LISTA ANTIGUA (indice original del ZIP), con texto reparado para lectura."""
+    with _zip_antigua(cfg) as z:
+        idx = json.loads(z.read("INDEX.json").decode("utf-8-sig"))
+        items = {}
+        for n in z.namelist():
+            m = re.match(r"ITEMS/([A-Za-z]+-\d+)", n)
+            if m and n.endswith(".md"):
+                items.setdefault(m.group(1), n)
+    t = (texto or "").lower(); notas = []
+    for n in idx.get("retrieval", {}).get("notes", []):
+        rec = {"clave": n.get("memoryKey"), "titulo": _reparar(n.get("title")), "categoria": _reparar(n.get("category")),
+               "estadoHistorico": _reparar(n.get("currentImplementationStatus")), "seguimiento": _reparar(n.get("reviewTrack")),
+               "palabras": [_reparar(k) for k in (n.get("keywords") or [])][:12], "ficha": items.get(n.get("memoryKey"))}
+        if not t or t in json.dumps(rec, ensure_ascii=False).lower():
+            notas.append(rec)
+    return {"aviso": "HISTORICO NO VIGENTE (MMC). Solo consulta: no crea fichas, estados ni autorizaciones.", "total": len(idx.get("retrieval", {}).get("notes", [])),
+            "notas": notas, "fuente": LA_ZIP + "#INDEX.json"}
+
+def lista_antigua_ficha(cfg, clave: str) -> dict:
+    if not ANY_ID.fullmatch(clave or ""):
+        raise ValueError("CLAVE_INVALIDA")
+    with _zip_antigua(cfg) as z:
+        nombres = [n for n in z.namelist() if n.startswith("ITEMS/" + clave + "-") or n == "ITEMS/" + clave + ".md"]
+        if not nombres:
+            return {"clave": clave, "estado": "SIN_FICHA_EN_ITEMS"}
+        b = z.read(nombres[0])
+    return {"aviso": "HISTORICO NO VIGENTE", "clave": clave, "fuente": LA_ZIP + "#" + nombres[0], "sha256": sha_bytes(b),
+            "texto": _reparar(_texto(b))[:40000]}
 
 # ---------------------------------------------------------------- proyectos
 def crear_proyecto(cfg, pid: str, nombre: str, proposito: str, prioridad: str = "P2", raiz: str = "", repositorio: str = "", agente: str = "") -> dict:
@@ -465,9 +539,15 @@ def lista_ampliar(cfg, item_id: str, nota: str, estado: str = "", agente: str = 
     _ampliar_ficha(r, "07-LISTA", item_id, "- %s %s%s: %s" % (utc()[:19], agente or "TCSA3000", (" [estado->%s]" % estado.upper()) if estado else "", nota.strip()[:3000]), op)
     return {"estado": PENDIENTE, "registro": rec}
 
+IMPACTOS = ("ALTO", "CRITICO")
+
 def desc_guardar(cfg, titulo: str, tipo: str, proyectos: list, resumen: str, aplicabilidad: str = "", estado: str = "OBSERVADO",
-                 confianza: str = "MEDIA", fuentes=None, accion: str = "", advertencias: str = "", forzar: bool = False, agente: str = "") -> dict:
+                 confianza: str = "MEDIA", fuentes=None, accion: str = "", advertencias: str = "", forzar: bool = False, agente: str = "",
+                 impacto: str = "", porque_importa: str = "") -> dict:
     r = root(cfg)
+    if (impacto or "").upper() not in IMPACTOS or len((porque_importa or "").strip()) < 20:
+        raise ValueError("DESCUBRIMIENTOS_SOLO_IMPORTANTE: indica impacto ALTO o CRITICO y por que importa (decision de arquitectura, causa raiz recurrente, "
+                         "riesgo, limitacion o solucion que cambia como se trabaja). Los detalles pequenos ya resueltos van en el cierre del proyecto o en LISTA.")
     proyectos = [p for p in (proyectos or []) if p]
     for p in proyectos: _entrada(r, p)
     if not proyectos or not (titulo or "").strip() or not (resumen or "").strip():
@@ -480,17 +560,45 @@ def desc_guardar(cfg, titulo: str, tipo: str, proyectos: list, resumen: str, apl
         par = _parecidos(recs, "title", titulo)
         if par and not forzar:
             return {"estado": "POSIBLE_DUPLICADO_NO_GUARDADO", "candidatos": par, "ayuda": "Actualiza el existente o repite con forzar=true."}
-        did = _siguiente(recs, "discoveryId", "DESC-")
+        ret = r / "08-DESCUBRIMIENTOS" / "RETIRADOS.json"
+        retirados = _read_json(ret).get("records", []) if ret.is_file() else []
+        did = _siguiente(recs + retirados, "discoveryId", "DESC-")  # los ID retirados no se reutilizan
         rec = {"discoveryId": did, "title": titulo.strip(), "type": (tipo or "OBSERVACION").upper(), "status": estado.upper(), "projectIds": proyectos,
                "summary": resumen.strip()[:2000], "applicability": aplicabilidad[:1000], "confidence": confianza, "sourceRefs": list(fuentes or [])[:30],
-               "action": accion[:1000], "createdAtUtc": utc(), "author": agente or "TCSA3000", "file": did + ".md"}
-        _crear(r / "08-DESCUBRIMIENTOS" / rec["file"], ("# %s - %s\n\nTipo: %s | Estado: %s | Confianza: %s | Proyectos: %s | Fecha: %s\n\n## Sintesis\n%s\n\n## Aplicabilidad\n%s\n\n## Accion recomendada\n%s\n\n## Advertencias\n%s\n\n## Fuentes\n%s\n\n## Historial\n"
-                 % (did, rec["title"], rec["type"], rec["status"], confianza, ", ".join(proyectos), rec["createdAtUtc"], rec["summary"], aplicabilidad or "-", accion or "-", advertencias or "-",
-                    "\n".join("- " + str(x) for x in rec["sourceRefs"]) or "-")).encode("utf-8"))
+               "action": accion[:1000], "impact": impacto.upper(), "whyItMatters": porque_importa.strip()[:1500], "createdAtUtc": utc(), "author": agente or "TCSA3000", "file": did + ".md"}
+        tpl = ("# %s - %s\n\nTipo: %s | Estado: %s | Confianza: %s | Impacto: %s | Proyectos: %s | Fecha: %s\n\n## Por que importa\n%s\n\n## Sintesis\n%s\n\n"
+               "## Aplicabilidad\n%s\n\n## Accion recomendada\n%s\n\n## Advertencias\n%s\n\n## Fuentes\n%s\n\n## Historial\n")
+        _crear(r / "08-DESCUBRIMIENTOS" / rec["file"], (tpl % (did, rec["title"], rec["type"], rec["status"], confianza, rec["impact"], ", ".join(proyectos), rec["createdAtUtc"],
+                 rec["whyItMatters"], rec["summary"], aplicabilidad or "-", accion or "-", advertencias or "-", "\n".join("- " + str(x) for x in rec["sourceRefs"]) or "-")).encode("utf-8"))
         recs.append(rec); ix["updatedDate"] = utc()[:10]
         _cas(r, idxp, old, _jb(ix), op)
     _journal(cfg, "DESC_GUARDAR", {"id": did})
     return {"estado": PENDIENTE, "guardado": rec}
+
+def desc_retirar(cfg, item_id: str, motivo: str, agente: str = "") -> dict:
+    """Saca un descubrimiento del indice vigente (no es importante o quedo superado). No se destruye: pasa a
+    08-DESCUBRIMIENTOS/RETIRADOS.json + RETIRADOS/<id>.md, con preimagen del indice. Su ID no se reutiliza."""
+    r = root(cfg); idxp = r / "08-DESCUBRIMIENTOS" / "INDEX.json"
+    if len((motivo or "").strip()) < 10:
+        raise ValueError("FALTA_MOTIVO")
+    op = _op_id("DESC", "RETIRAR")
+    def f(ix):
+        recs = ix.get("records", []); rec = next((x for x in recs if x.get("discoveryId") == item_id), None)
+        if not rec: raise LookupError("DESCUBRIMIENTO_NO_ENCONTRADO:" + item_id)
+        recs.remove(rec); ix["updatedDate"] = utc()[:10]; return rec
+    rec, _ = _editar_json(r, idxp, op, f)
+    ret = r / "08-DESCUBRIMIENTOS" / "RETIRADOS.json"
+    with _lock(str(ret)):
+        old = ret.read_bytes() if ret.is_file() else None
+        d = json.loads(old) if old else {"schema": "tcsa.discoveries.retired.v1", "nota": "Retirados del indice vigente; se conservan.", "records": []}
+        d["records"].append(dict(rec, retiradoUtc=utc(), motivoRetiro=motivo.strip()[:1000], retiradoPor=agente or "TCSA3000"))
+        _cas(r, ret, old, _jb(d), op)
+    fic = r / "08-DESCUBRIMIENTOS" / (rec.get("file") or item_id + ".md")
+    if fic.is_file():
+        dst = r / "08-DESCUBRIMIENTOS" / "RETIRADOS" / fic.name
+        dst.parent.mkdir(exist_ok=True); os.replace(fic, dst)
+    _journal(cfg, "DESC_RETIRAR", {"id": item_id, "motivo": motivo[:200]})
+    return {"estado": PENDIENTE, "retirado": item_id, "conservadoEn": "08-DESCUBRIMIENTOS/RETIRADOS.json"}
 
 def desc_actualizar(cfg, item_id: str, nota: str, estado: str = "", agente: str = "") -> dict:
     r = root(cfg); idxp = r / "08-DESCUBRIMIENTOS" / "INDEX.json"

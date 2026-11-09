@@ -23,7 +23,12 @@ def ampliar_fixture(root: Path):
     h = root / "09-HISTORICO/LISTA-ANTIGUA-MMC"; h.mkdir(parents=True)
     with gzip.open(root / "09-HISTORICO/CATALOGO-FICHEROS-LEGADO.jsonl.gz", "wt", encoding="utf-8") as f:
         f.write(json.dumps({"path": "C:/MMC/motor/idea-vieja.md", "size": 10}) + "\n")
-    with zipfile.ZipFile(h / "LISTA-ORIGINAL-ARCHIVO.zip", "w") as z: z.writestr("LISTA/idea-vieja.md", "idea vieja")
+    moji = "Autorización de prueba".encode("utf-8").decode("cp1252").encode("utf-8").decode("cp1252")  # doble mojibake real
+    with zipfile.ZipFile(h / "LISTA-ORIGINAL-ARCHIVO.zip", "w") as z:
+        z.writestr("LISTA/idea-vieja.md", "idea vieja")
+        z.writestr("INDEX.json", json.dumps({"retrieval": {"notes": [{"memoryKey": "LISTA-001", "title": moji, "category": "x"},
+                                                                   {"memoryKey": "LISTA-002", "title": "segunda nota", "category": "y"}]}}))
+        z.writestr("ITEMS/LISTA-001-PRUEBA.md", "# LISTA-001\ncontenido viejo")
     (root / "07-LISTA/LISTA-TCSA-001.md").write_text("# LISTA-TCSA-001\n", "utf-8")
     c = json.loads((root / "02-CATALOGO/PROYECTOS.json").read_text("utf-8"))
     c["projects"][1] = {"projectId": "AF-CORE", "name": "AUTOFABRICADOR", "status": "CANDIDATE", "capsule": "03-PROYECTOS/AF-CORE/CAPSULA-PROYECTO.json"}
@@ -43,7 +48,7 @@ class Base(unittest.TestCase):
         shutil.copy2(REPO / "NORMAS-TCSA3000.md", self.home)
         self.r = self.tmp / "TCSA"; fixture_tcsa(self.r); ampliar_fixture(self.r)
         self.env = mock.patch.dict(os.environ, {"TCSA3000_HOME": str(self.home)}); self.env.start()
-        (self.home / "tcsa3000.config.json").write_text(json.dumps({"tcsaRoot": str(self.r), "fallbackDir": str(self.r / "x/y")}), "utf-8")
+        (self.home / "tcsa3000.config.json").write_text(json.dumps({"tcsaRoot": str(self.r), "fallbackDir": str(self.r / "x/y"), "respaldoDir": str(self.tmp / "DRIVE" / "TCSA")}), "utf-8")
         self.cfg = config.load(); legado._cache.clear()
     def tearDown(self):
         self.env.stop(); shutil.rmtree(self.tmp, ignore_errors=True)
@@ -126,12 +131,26 @@ class ListaDesc(Base):
         self.assertEqual(C.lista_ampliar(self.cfg, "LISTA-TCSA-001", "nota", agente="t")["registro"]["status"], "PROPUESTO")
         with self.assertRaises(ValueError): C.lista_ampliar(self.cfg, "LISTA-TCSA-002", "x", "INVENTADO")
     def test_descubrimiento_guardar_y_actualizar(self):
-        g = C.desc_guardar(self.cfg, "El modulo secrets sombrea la stdlib", "ERROR", ["TCSA3000"], "Renombrar a credenciales", estado="PROBADO")
+        with self.assertRaisesRegex(ValueError, "SOLO_IMPORTANTE"):
+            C.desc_guardar(self.cfg, "Arreglo menor de un import", "ERROR", ["TCSA3000"], "detalle pequeno ya resuelto")
+        g = C.desc_guardar(self.cfg, "La continuidad canonica vive en TCSA3000", "DECISION", ["TCSA3000"], "Drive pasa a ser espejo",
+                           estado="PROBADO", impacto="CRITICO", porque_importa="Cambia donde leen y escriben todas las IAs: 100% de la continuidad")
         self.assertEqual(g["guardado"]["discoveryId"], "DESC-003")
         C.desc_actualizar(self.cfg, "DESC-003", "confirmado en Windows", "PROBADO")
-        with self.assertRaises(LookupError): C.desc_guardar(self.cfg, "x" * 5, "T", ["NOEXISTE"], "y")
+        r = C.desc_retirar(self.cfg, "DESC-003", "prueba de retirada controlada")
+        self.assertNotIn("DESC-003", (self.r / "08-DESCUBRIMIENTOS/INDEX.json").read_text("utf-8"))
+        self.assertIn("DESC-003", (self.r / "08-DESCUBRIMIENTOS/RETIRADOS.json").read_text("utf-8"))
+        self.assertTrue((self.r / "08-DESCUBRIMIENTOS/RETIRADOS/DESC-003.md").is_file())
+        g2 = C.desc_guardar(self.cfg, "Otro descubrimiento distinto y relevante", "RIESGO", ["AF-CORE"], "x", impacto="ALTO", porque_importa="Evita perder trabajo al reanudar")
+        self.assertEqual(g2["guardado"]["discoveryId"], "DESC-004")  # el ID retirado no se reutiliza
+        with self.assertRaises(LookupError): C.desc_guardar(self.cfg, "x" * 5, "T", ["NOEXISTE"], "y", impacto="ALTO", porque_importa="z" * 30)
     def test_lista_antigua_solo_historico(self):
         r = C.lista_antigua(self.cfg, "idea-vieja"); self.assertIn("NO VIGENTE", r["aviso"]); self.assertTrue(r["resultados"])
+    def test_lista_antigua_visible_y_reparada(self):
+        v = C.lista_antigua_ver(self.cfg)
+        self.assertEqual(v["total"], 2); self.assertEqual(v["notas"][0]["titulo"], "Autorización de prueba")
+        f = C.lista_antigua_ficha(self.cfg, "LISTA-001"); self.assertIn("contenido viejo", f["texto"]); self.assertIn("NO VIGENTE", f["aviso"])
+        self.assertEqual(len(C.lista_antigua_ver(self.cfg, "segunda")["notas"]), 1)
 
 class Seguridad(Base):
     def test_rutas_y_solo_lectura(self):
@@ -155,6 +174,40 @@ class Otros(Base):
         self.assertEqual(C.confirmar_sync(self.cfg, g["ruta"], "id1", 1)["estado"], "SYNC_MISMATCH")
         self.assertEqual(C.enrutar(self.cfg, {"kind": "test"})["route"], "L0_DETERMINISTIC")
         with self.assertRaises(ValueError): C.guardar_conversacion(self.cfg, "TCSA3000", "LOCAL-T1", "x", [{"texto": "a", "cobertura": "FULL"}])
+
+class Espejo(Base):
+    def test_espejo_sube_importa_conflicto_y_nunca_borra(self):
+        from tcsa3000 import espejo
+        (self.tmp / "DRIVE").mkdir()
+        r = espejo.sincronizar(self.cfg); self.assertEqual(r["estado"], "OK"); self.assertGreater(r["subidosADrive"], 10)
+        d = Path(self.cfg["respaldoDir"])
+        self.assertEqual(espejo.verificar(self.cfg)["distintos"], [])
+        (d / "00-CHECKPOINTS/BY-PROJECT/AF-CORE/CIERRES").mkdir(parents=True)
+        (d / "00-CHECKPOINTS/BY-PROJECT/AF-CORE/CIERRES/web.json").write_text("{}", "utf-8")  # cierre de una IA web en Drive
+        (self.r / "LEEME-PRIMERO.md").write_text("cambio local", "utf-8"); (d / "LEEME-PRIMERO.md").write_text("cambio en drive", "utf-8")
+        (self.r / "07-LISTA/README-borrado.md").write_text("x", "utf-8"); espejo.sincronizar(self.cfg)
+        os.remove(self.r / "07-LISTA/README-borrado.md")
+        r = espejo.sincronizar(self.cfg)
+        self.assertTrue((self.r / "00-CHECKPOINTS/BY-PROJECT/AF-CORE/CIERRES/web.json").is_file())
+        self.assertEqual((d / "LEEME-PRIMERO.md").read_text("utf-8"), "cambio local")
+        self.assertTrue(any((self.r / "99-RECUPERACION/TCSA3000/CONFLICTOS-DRIVE").rglob("LEEME-PRIMERO.md")))
+        self.assertTrue((d / "07-LISTA/README-borrado.md").is_file()); self.assertFalse((self.r / "07-LISTA/README-borrado.md").exists())
+    def test_sin_unidad_de_respaldo(self):
+        from tcsa3000 import espejo
+        cfg = dict(self.cfg, respaldoDir=str(self.tmp / "NOHAY" / "X" / "TCSA"))
+        self.assertEqual(espejo.sincronizar(cfg)["estado"], "BLOQUEADO")
+
+class Remoto(Base):
+    def test_modo_remoto_solo_lectura_y_search_fetch(self):
+        names = {t["name"] for t in tools.lista_para("REMOTO_LECTURA")}
+        self.assertIn("search", names); self.assertIn("fetch", names); self.assertNotIn("tcsa3000_cierre", names)
+        with self.assertRaisesRegex(PermissionError, "REMOTA"): tools.call("tcsa3000_cierre", {"projectId": "AF-CORE", "nivel": "C1", "resumen": "x", "nextAction": "y"}, self.cfg, "REMOTO_LECTURA")
+        tools.call("tcsa3000_cierre", {"projectId": "AF-CORE", "nivel": "C1", "resumen": "x", "nextAction": "y"}, self.cfg, "REMOTO_ESCRITURA")
+        from tcsa3000 import index
+        index.reindex(self.cfg)
+        s = tools.call("search", {"query": "economia"}, self.cfg, "REMOTO_LECTURA"); self.assertTrue(s["results"])
+        f = tools.call("fetch", {"id": s["results"][0]["id"]}, self.cfg, "REMOTO_LECTURA"); self.assertTrue(f["text"])
+        self.assertNotIn("search", {t["name"] for t in tools.lista_para("SERVICIO")})
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

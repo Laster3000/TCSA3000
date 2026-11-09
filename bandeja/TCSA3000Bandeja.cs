@@ -14,7 +14,7 @@ using System.Windows.Forms;
 
 [assembly: System.Reflection.AssemblyTitle("TCSA3000")]
 [assembly: System.Reflection.AssemblyProduct("TCSA3000")]
-[assembly: System.Reflection.AssemblyVersion("0.3.0.3")]
+[assembly: System.Reflection.AssemblyVersion("0.4.0.4")]
 
 static class Programa
 {
@@ -49,6 +49,18 @@ class Bandeja : ApplicationContext
     string version = "", ubicacion = "";
     volatile bool comprobando = false;
 
+    public static void Log(string texto)
+    {
+        try
+        {
+            var f = Path.Combine(Home(), "data", "bandeja.log");
+            Directory.CreateDirectory(Path.GetDirectoryName(f));
+            if (File.Exists(f) && new FileInfo(f).Length > 200000) File.Delete(f);
+            File.AppendAllText(f, DateTime.Now.ToString("s") + " " + texto + Environment.NewLine);
+        }
+        catch { }
+    }
+
     public static string Home()
     {
         return AppDomain.CurrentDomain.BaseDirectory.TrimEnd('\\');
@@ -59,6 +71,7 @@ class Bandeja : ApplicationContext
         icOn = Dibujar(Color.FromArgb(15, 118, 110), Color.FromArgb(34, 197, 94));
         icOff = Dibujar(Color.FromArgb(90, 98, 112), Color.FromArgb(220, 38, 38));
         ConstruirMenu();
+        var asegurarHandle = menu.Handle;  // necesario para BeginInvoke antes de abrir el menu por primera vez
         icono.Icon = icOff;
         icono.Text = "TCSA3000 - comprobando...";
         icono.ContextMenuStrip = menu;
@@ -99,6 +112,7 @@ class Bandeja : ApplicationContext
         var ajustes = Item("Configuracion", null);
         ajustes.DropDownItems.AddRange(new ToolStripItem[] {
             Item("Conectar una IA (MCP)...", delegate { Panel("ia"); }),
+            Item("ChatGPT por tunel seguro...", delegate { Panel("ia"); }),
             Item("Normas y directrices...", delegate { Panel("normas"); }),
             Item("Credenciales...", delegate { Panel("cred"); }),
             Item("Ubicacion y ajustes...", delegate { Panel("ajustes"); }),
@@ -112,7 +126,7 @@ class Bandeja : ApplicationContext
             Item("LISTA", delegate { Panel("lista"); }),
             Item("Descubrimientos", delegate { Panel("desc"); }),
             new ToolStripSeparator(),
-            Item("Respaldo a Drive ahora", delegate { Accion("respaldo", "Exportando respaldo a Drive..."); }),
+            Item("Copiar a Drive ahora (respaldo)", delegate { Accion("respaldo", "Copiando la continuidad a Drive..."); }),
             servicio, ajustes,
             new ToolStripSeparator(),
             Item("Salir y detener TCSA3000", delegate { Salir(true); }),
@@ -126,7 +140,8 @@ class Bandeja : ApplicationContext
         proyectos.DropDownItems.Clear();
         try
         {
-            var root = LeerConfig("tcsaRoot", @"G:\Mi unidad\TCSA");
+            var root = LeerConfig("tcsaRoot", "TCSA");
+            if (!Path.IsPathRooted(root)) root = Path.Combine(home, root);
             var cat = Path.Combine(root, "02-CATALOGO", "PROYECTOS.json");
             var json = new JavaScriptSerializer().DeserializeObject(File.ReadAllText(cat)) as Dictionary<string, object>;
             var lista = json != null && json.ContainsKey("projects") ? json["projects"] as object[] : null;
@@ -164,6 +179,7 @@ class Bandeja : ApplicationContext
         ThreadPool.QueueUserWorkItem(delegate
         {
             string salida = LanzarCli(home, orden, true);
+            Log(orden + " -> " + (salida ?? "(sin salida)").Replace("\r", " ").Replace("\n", " "));
             var m = Regex.Match(salida ?? "", "\"(servicio|estado)\":\\s*\"([^\"]+)\"");
             string res = m.Success ? m.Groups[2].Value.Replace('_', ' ').ToLower() : "hecho";
             bool mal = res.Contains("no ") || res.Contains("bloque") || res.Contains("error");
@@ -220,10 +236,10 @@ class Bandeja : ApplicationContext
                 menu.BeginInvoke((MethodInvoker)delegate
                 {
                     Pintar(ok);
-                    if (!ok && arrancarSiParado && enMarcha != true) Accion("arrancar", "Arrancando TCSA3000...");
+                    if (!ok && arrancarSiParado) Accion("arrancar", "Arrancando TCSA3000...");
                 });
             }
-            catch { }
+            catch (Exception ex) { Log("Comprobar: " + ex.Message); }
             comprobando = false;
         });
     }
@@ -284,6 +300,7 @@ class Bandeja : ApplicationContext
         }
         catch (Exception ex)
         {
+            Log("LanzarCli " + orden + ": " + ex.Message);
             return "{\"estado\": \"ERROR " + ex.Message.Replace("\"", "'") + "\"}";
         }
     }

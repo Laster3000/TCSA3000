@@ -1,7 +1,7 @@
 """Servicio local TCSA3000: HTTP en 127.0.0.1, MCP JSON-RPC en /mcp, panel en /panel. Proceso unico controlado por bandeja/panel/CLI.
 Uso: python -m tcsa3000.service   (o tcsa3000\\service.py)"""
 from __future__ import annotations
-import html, json, os, subprocess, sys, threading, time
+import hmac, html, json, os, re, subprocess, sys, threading, time
 from http import cookies
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -10,10 +10,11 @@ if __package__ in (None, ""):
     _aqui = str(Path(__file__).resolve().parent)
     sys.path[:] = [x for x in sys.path if str(Path(x or ".").resolve()) != _aqui]  # evita sombrear la stdlib
     sys.path.insert(0, str(Path(__file__).resolve().parents[1])); __package__ = "tcsa3000"
-from tcsa3000 import VERSION, clients, config, fallback, index, normas, credenciales, sources, tools
+from tcsa3000 import VERSION, clients, config, continuidad, espejo, fallback, index, normas, credenciales, sources, tools, tunel
 from tcsa3000.storage import journal, utc, write_json
 
 STARTED = time.time()
+REMOTO = re.compile(r"^/remoto/([A-Za-z0-9_-]{20,})/mcp/?$")
 
 def state_file():
     return config.data_dir() / "servicio.json"
@@ -53,7 +54,7 @@ class H(BaseHTTPRequestHandler):
                 return self._send(303, "", "text/plain", {"Location": "/panel", "Set-Cookie": "tcsa3000=%s; HttpOnly; SameSite=Strict; Path=/" % t})
             if not self._token_ok(): return self._send(401, "<h1>401</h1><p>Abre el panel desde la bandeja o con TCSA3000.cmd panel.</p>", "text/html; charset=utf-8")
             return self._send(200, panel_html(self.server.port), "text/html; charset=utf-8")
-        if u.path == "/mcp": return self._send(405, {"error": "USA_POST"}, extra={"Allow": "POST"})
+        if u.path == "/mcp" or REMOTO.match(u.path): return self._send(405, {"error": "USA_POST"}, extra={"Allow": "POST"})
         if not self._token_ok(): return self._send(401, {"error": "NO_AUTORIZADO"})
         try:
             if u.path == "/api/estado": return self._send(200, self.server.estado())
@@ -64,12 +65,35 @@ class H(BaseHTTPRequestHandler):
             if u.path == "/api/descubrimientos": return self._send(200, sources.descubrimientos(cfg))
             if u.path == "/api/propuestas": return self._send(200, sources.propuestas())
             if u.path == "/api/config": return self._send(200, {k: v for k, v in cfg.items()})
+            if u.path == "/api/inventario-credenciales":
+                raices = [x.get("sourceRoot") or x.get("currentRuntimeRoot") for x in continuidad._catalogo(continuidad.root(cfg))[1].get("projects", [])]
+                return self._send(200, credenciales.inventario([r for r in raices if r] + [cfg["home"]]))
+            if u.path == "/api/tunel": return self._send(200, tunel.estado(cfg))
+            if u.path == "/api/espejo": return self._send(200, self.server.ultimo_espejo or {"estado": "AUN_NO_EJECUTADO"})
             if u.path == "/api/herramientas": return self._send(200, [{"name": t["name"], "description": t["description"], "escritura": t["name"] in tools.ESCRITURA} for t in tools.TOOLS])
         except Exception as e:
             return self._send(500, {"error": str(e)})
         self._send(404, {"error": "NO_ENCONTRADO"})
+    def _remoto(self, secreto_url: str):
+        cfg = self.server.cfg
+        if not hmac.compare_digest(secreto_url, tunel.secreto()):
+            time.sleep(0.5); return self._send(404, {"error": "NO_ENCONTRADO"})
+        modo = "REMOTO_ESCRITURA" if cfg.get("remotoEscritura") else "REMOTO_LECTURA"
+        try:
+            body = self._body()
+        except Exception:
+            return self._send(400, {"error": "JSON_INVALIDO"})
+        msgs = body if isinstance(body, list) else [body]
+        for m in msgs:
+            if isinstance(m, dict) and m.get("method") == "tools/call":
+                journal(config.data_dir() / "remoto.journal.jsonl", "REMOTO_TOOL", {"name": (m.get("params") or {}).get("name"), "modo": modo})
+        out = [r for r in (tools.handle_jsonrpc(m, cfg, modo) for m in msgs if isinstance(m, dict)) if r]
+        if not out: return self._send(202, b"", "text/plain")
+        return self._send(200, out if isinstance(body, list) else out[0])
     def do_POST(self):
         u = urlparse(self.path); cfg = self.server.cfg
+        m = REMOTO.match(u.path)
+        if m: return self._remoto(m.group(1))
         if not self._token_ok() or not self._origin_ok(): return self._send(401, {"error": "NO_AUTORIZADO"})
         try:
             body = self._body()
@@ -100,7 +124,12 @@ class H(BaseHTTPRequestHandler):
             if u.path == "/api/proponer":
                 return self._send(200, sources.proponer(body.get("tipo"), body.get("titulo"), body.get("projectId"), body.get("resumen"), body.get("fuente", ""), "panel"))
             if u.path == "/api/reindexar": return self._send(200, index.reindex(cfg))
-            if u.path == "/api/respaldo": return self._send(200, fallback.exportar(cfg, self.server.estado()))
+            if u.path == "/api/respaldo": return self._send(200, self.server.respaldar())
+            if u.path == "/api/espejo/verificar": return self._send(200, espejo.verificar(cfg))
+            if u.path == "/api/tunel/descargar": return self._send(200, tunel.descargar())
+            if u.path == "/api/tunel/iniciar": return self._send(200, tunel.iniciar(cfg))
+            if u.path == "/api/tunel/parar": return self._send(200, tunel.parar(cfg))
+            if u.path == "/api/tunel/rotar": tunel.parar(cfg); return self._send(200, tunel.rotar_secreto())
             if u.path == "/api/apagar":
                 self._send(200, {"estado": "APAGANDO"}); threading.Thread(target=self.server.apagar, daemon=True).start(); return
             if u.path == "/api/reiniciar":
@@ -115,6 +144,7 @@ class Server(ThreadingHTTPServer):
         self.cfg, self.token, self.port = cfg, token, cfg["port"]
         super().__init__((cfg["host"], cfg["port"]), H)
         self._stop = threading.Event()
+        self.ultimo_espejo = None
     def registrado(self, p):
         try:
             e = json.loads(Path(p).read_text("utf-8-sig")).get("mcpServers", {}).get("tcsa3000")
@@ -124,10 +154,11 @@ class Server(ThreadingHTTPServer):
             return "ERROR:" + str(ex)
     def estado(self):
         return {"servicio": "EN_MARCHA", "version": VERSION, "pid": os.getpid(), "puerto": self.port, "ubicacion": self.cfg["home"],
-                "tcsaRoot": self.cfg["tcsaRoot"], "tcsaAccesible": Path(self.cfg["tcsaRoot"]).is_dir(), "respaldoDrive": self.cfg["fallbackDir"],
+                "tcsaRoot": self.cfg["tcsaRoot"], "tcsaAccesible": Path(self.cfg["tcsaRoot"]).is_dir(), "respaldoDrive": self.cfg["respaldoDir"],
+                "respaldoAccesible": Path(self.cfg["respaldoDir"]).parent.exists(), "ultimoEspejo": (self.ultimo_espejo or {}).get("at"),
                 "inicio": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(STARTED)), "python": sys.executable}
     def guardar_config(self, body: dict):
-        allowed = {"tcsaRoot", "fallbackDir", "port", "fallbackEveryMinutes", "allowlist"}
+        allowed = {"tcsaRoot", "respaldoDir", "fallbackDir", "port", "fallbackEveryMinutes", "allowlist", "remotoEscritura", "tunelAlArrancar", "tunelHost"}
         bad = set(body) - allowed
         if bad: raise ValueError("CLAVES_NO_PERMITIDAS:" + ",".join(sorted(bad)))
         p = config.config_path(); cur = json.loads(p.read_text("utf-8-sig")) if p.exists() else {}
@@ -136,21 +167,32 @@ class Server(ThreadingHTTPServer):
         cur.update(body); write_json(p, cur); self.cfg = config.load()
         journal(config.data_dir() / "servicio.journal.jsonl", "CONFIG", {"claves": sorted(body)})
         return {"guardado": True, "config": self.cfg, "nota": "Cambiar el puerto requiere reiniciar el servicio."}
+    def respaldar(self):
+        fb = fallback.exportar(self.cfg, self.estado())
+        try: self.ultimo_espejo = espejo.sincronizar(self.cfg)
+        except Exception as e: self.ultimo_espejo = {"estado": "ERROR", "error": str(e), "at": utc()}
+        journal(config.data_dir() / "servicio.journal.jsonl", "RESPALDO", {"fallback": fb.get("estado"), "espejo": {k: self.ultimo_espejo.get(k) for k in ("estado", "subidosADrive", "importadosDeDrive", "conflictos")}})
+        return {"contextoFallback": fb, "espejoDrive": self.ultimo_espejo}
     def apagar(self):
         time.sleep(0.3); journal(config.data_dir() / "servicio.journal.jsonl", "APAGADO", {"pid": os.getpid()})
+        try: tunel.parar(self.cfg)
+        except Exception: pass
         self._stop.set(); self.shutdown()
     def reiniciar(self):
         lanzar(esperar=True); self.apagar()
     def ciclo(self):
         try: index.reindex(self.cfg)
         except Exception: pass
+        if self.cfg.get("tunelAlArrancar"):
+            try: tunel.iniciar(self.cfg)
+            except Exception: pass
         nxt = time.time() + 5
         while not self._stop.wait(1):
             if time.time() >= nxt:
                 nxt = time.time() + 60 * max(1, int(self.cfg["fallbackEveryMinutes"]))
                 try: index.reindex(self.cfg)  # la busqueda incluye lo guardado desde el ultimo ciclo
                 except Exception: pass
-                try: journal(config.data_dir() / "servicio.journal.jsonl", "RESPALDO", fallback.exportar(self.cfg, self.estado()))
+                try: self.respaldar()
                 except Exception as e: journal(config.data_dir() / "servicio.journal.jsonl", "RESPALDO_ERROR", {"error": str(e)})
 
 def lanzar(esperar=False):

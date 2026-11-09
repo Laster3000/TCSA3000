@@ -14,3 +14,7 @@ CAPSULA-PROYECTO.json
 CHECKPOINT-ARRANQUE.json
 INVESTIGACION-Y-PLAN.md
 REGISTRAR-TCSA3000.ps1
+
+# Continuidad canonica (datos privados) y binarios del tunel
+TCSA/
+tunel/

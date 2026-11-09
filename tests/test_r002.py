@@ -133,7 +133,7 @@ class Adaptador(Base):
 class Respaldo(Base):
     def test_export_to_drive_folder(self):
         r = fallback.exportar(self.cfg, {"servicio": "TEST"})
-        self.assertEqual(r["estado"], "ESCRITO_LOCAL_PENDING_CLOUD_READBACK")
+        self.assertTrue(r["estado"].startswith("GUARDADO"))
         md = (self.tcsa / "03-PROYECTOS/TCSA3000/ESTADO-FALLBACK/CONTEXTO-TCSA3000.md").read_text("utf-8")
         self.assertIn("LISTA-TCSA-001", md); self.assertIn("DESC-001", md); self.assertIn("NORMAS DE TCSA3000", md)
     def test_blocked_when_drive_missing(self):

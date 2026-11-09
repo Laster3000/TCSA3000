@@ -4,8 +4,12 @@ import json, os, sys
 from pathlib import Path
 
 DEFAULTS = {
-    "tcsaRoot": r"G:\Mi unidad\TCSA",
-    "fallbackDir": r"G:\Mi unidad\TCSA\03-PROYECTOS\TCSA3000\ESTADO-FALLBACK",
+    # Continuidad canonica DENTRO de TCSA3000 (portatil). Drive es solo respaldo (espejo).
+    "tcsaRoot": "TCSA",
+    "respaldoDir": r"G:\Mi unidad\TCSA",
+    "fallbackDir": "TCSA/03-PROYECTOS/TCSA3000/ESTADO-FALLBACK",
+    "remotoEscritura": False,
+    "tunelAlArrancar": False,
     "host": "127.0.0.1",
     "port": 18730,
     "fallbackEveryMinutes": 10,
@@ -35,6 +39,9 @@ def load() -> dict:
             raise ValueError("CONFIG_NOT_OBJECT")
         cfg.update(user)
     cfg["home"] = str(home())
+    for k in ("tcsaRoot", "fallbackDir"):  # rutas relativas = dentro de la carpeta de TCSA3000
+        if not Path(cfg[k]).is_absolute():
+            cfg[k] = str(home() / cfg[k])
     if not isinstance(cfg["port"], int) or not 1024 <= cfg["port"] <= 65535:
         raise ValueError("CONFIG_PORT_INVALID")
     if cfg["host"] not in ("127.0.0.1", "localhost"):

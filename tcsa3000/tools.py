@@ -29,10 +29,14 @@ TOOLS = [
     {"name": "tcsa3000_lista_ficha", "description": "Ficha completa de una entrada de LISTA.", "inputSchema": _s({"id": S}, ["id"])},
     {"name": "tcsa3000_lista_guardar", "description": "GUARDAR en LISTA una idea/mejora/requisito nuevo (avisa de posibles duplicados).", "inputSchema": _s({"titulo": S, "projectId": PID, "motivo": S, "prioridad": S, "criterios": S, "fuente": S, "riesgos": S, "dependencias": S, "forzar": B, "agente": AG}, ["titulo", "projectId", "motivo"])},
     {"name": "tcsa3000_lista_ampliar", "description": "AMPLIAR una entrada de LISTA con una nota y, opcionalmente, cambiar su estado.", "inputSchema": _s({"id": S, "nota": S, "estado": {"type": "string", "enum": list(C.LISTA_ESTADOS)}, "agente": AG}, ["id", "nota"])},
-    {"name": "tcsa3000_lista_antigua", "description": "Busqueda en la LISTA ANTIGUA de MMC (historico NO vigente). Usar SOLO si el usuario la pide expresamente.", "inputSchema": _s({"texto": S, "contenido": B}, ["texto"])},
+    {"name": "tcsa3000_lista_antigua", "description": "Busqueda por texto en el archivo historico (rutas y contenido de la LISTA ANTIGUA de MMC, NO vigente). Usar SOLO si el usuario la pide.", "inputSchema": _s({"texto": S, "contenido": B}, ["texto"])},
+    {"name": "tcsa3000_lista_antigua_ver", "description": "Ver la LISTA ANTIGUA de MMC completa (60 fichas, historico NO vigente), con filtro opcional. Usar SOLO si el usuario la pide.", "inputSchema": _s({"texto": S})},
+    {"name": "tcsa3000_lista_antigua_ficha", "description": "Leer una ficha de la LISTA ANTIGUA por clave (p.ej. LISTA-014). Historico NO vigente.", "inputSchema": _s({"clave": S}, ["clave"])},
     {"name": "tcsa3000_descubrimientos", "description": "DESCUBRIMIENTOS aplicables (08-DESCUBRIMIENTOS). Consultar antes de decisiones importantes o reparaciones.", "inputSchema": _s({"projectId": PID, "texto": S})},
     {"name": "tcsa3000_descubrimiento_ficha", "description": "Ficha completa de un descubrimiento (p.ej. DESC-001).", "inputSchema": _s({"id": S}, ["id"])},
-    {"name": "tcsa3000_descubrimiento_guardar", "description": "Registrar un descubrimiento (decision, solucion probada, error, herramienta, limitacion...).", "inputSchema": _s({"titulo": S, "tipo": S, "proyectos": L, "resumen": S, "aplicabilidad": S, "estado": {"type": "string", "enum": list(C.DESC_ESTADOS)}, "confianza": S, "fuentes": L, "accion": S, "advertencias": S, "forzar": B, "agente": AG}, ["titulo", "proyectos", "resumen"])},
+    {"name": "tcsa3000_descubrimiento_guardar", "description": "Registrar un descubrimiento IMPORTANTE (decision de arquitectura, causa raiz recurrente, riesgo, limitacion o solucion que cambia como se trabaja). Impacto ALTO o CRITICO obligatorio. Los detalles pequenos ya resueltos NO van aqui (van al cierre del proyecto).",
+     "inputSchema": _s({"titulo": S, "tipo": S, "proyectos": L, "resumen": S, "impacto": {"type": "string", "enum": list(C.IMPACTOS)}, "porqueImporta": S, "aplicabilidad": S, "estado": {"type": "string", "enum": list(C.DESC_ESTADOS)}, "confianza": S, "fuentes": L, "accion": S, "advertencias": S, "forzar": B, "agente": AG}, ["titulo", "proyectos", "resumen", "impacto", "porqueImporta"])},
+    {"name": "tcsa3000_descubrimiento_retirar", "description": "Retirar del indice vigente un descubrimiento que no es importante o quedo superado (se conserva en RETIRADOS).", "inputSchema": _s({"id": S, "motivo": S, "agente": AG}, ["id", "motivo"])},
     {"name": "tcsa3000_descubrimiento_actualizar", "description": "Anadir nota y/o cambiar estado de un descubrimiento.", "inputSchema": _s({"id": S, "nota": S, "estado": {"type": "string", "enum": list(C.DESC_ESTADOS)}, "agente": AG}, ["id", "nota"])},
     # continuidad y proyectos
     {"name": "tcsa3000_cierre", "description": "CIERRE proporcional R2. C0 consulta (no guarda), C1 registro breve (por defecto), C2 cambio importante (checkpoint encadenado + capsula + catalogo), C3 bloqueado (operacion protegida).",
@@ -50,8 +54,12 @@ TOOLS = [
     {"name": "tcsa3000_directrices", "description": "Normas propias de TCSA3000 con version y SHA.", "inputSchema": _s({})},
     {"name": "tcsa3000_estado", "description": "Estado de TCSA3000: version, ubicacion, modo (servicio o degradado) e indice.", "inputSchema": _s({})},
 ]
-NAMES = {t["name"] for t in TOOLS}
-ESCRITURA = {"tcsa3000_abrir_proyecto", "tcsa3000_soltar_proyecto", "tcsa3000_lista_guardar", "tcsa3000_lista_ampliar", "tcsa3000_descubrimiento_guardar",
+REMOTAS = [
+    {"name": "search", "description": "Busca en la continuidad TCSA (documentos, capsulas, LISTA, DESCUBRIMIENTOS). Devuelve ids para fetch.", "inputSchema": _s({"query": S}, ["query"])},
+    {"name": "fetch", "description": "Devuelve el texto completo de un documento TCSA por id (ruta relativa devuelta por search).", "inputSchema": _s({"id": S}, ["id"])},
+]
+NAMES = {t["name"] for t in TOOLS} | {t["name"] for t in REMOTAS}
+ESCRITURA = {"tcsa3000_descubrimiento_retirar", "tcsa3000_abrir_proyecto", "tcsa3000_soltar_proyecto", "tcsa3000_lista_guardar", "tcsa3000_lista_ampliar", "tcsa3000_descubrimiento_guardar",
              "tcsa3000_descubrimiento_actualizar", "tcsa3000_cierre", "tcsa3000_operacion", "tcsa3000_crear_proyecto", "tcsa3000_guardar_conversacion",
              "tcsa3000_confirmar_sync", "tcsa3000_proponer"}
 
@@ -59,7 +67,9 @@ def call(name: str, a: dict, cfg: dict, modo: str = "SERVICIO") -> dict:
     a = a or {}
     if name not in NAMES:
         raise ValueError("HERRAMIENTA_DESCONOCIDA")
-    if name in ESCRITURA and modo != "SERVICIO":
+    if name in ESCRITURA and modo not in ("SERVICIO", "REMOTO_ESCRITURA"):
+        if modo.startswith("REMOTO"):
+            raise PermissionError("ESCRITURA_REMOTA_DESACTIVADA: el usuario solo permite lectura por el tunel (Ajustes de TCSA3000).")
         raise PermissionError("ESCRITURA_SOLO_CON_SERVICIO_EN_MARCHA (un unico escritor). Arranca TCSA3000 desde la bandeja.")
     g = a.get
     if name == "tcsa3000_arranque": return C.arranque(cfg)
@@ -81,9 +91,20 @@ def call(name: str, a: dict, cfg: dict, modo: str = "SERVICIO") -> dict:
     if name == "tcsa3000_lista_guardar": return C.lista_guardar(cfg, g("titulo", ""), g("projectId", ""), g("motivo", ""), g("prioridad", "P2"), g("criterios", ""), g("fuente", ""), g("riesgos", ""), g("dependencias", ""), bool(g("forzar")), g("agente", ""))
     if name == "tcsa3000_lista_ampliar": return C.lista_ampliar(cfg, g("id", ""), g("nota", ""), g("estado", ""), g("agente", ""))
     if name == "tcsa3000_lista_antigua": return C.lista_antigua(cfg, g("texto", ""), bool(g("contenido")))
+    if name == "tcsa3000_lista_antigua_ver": return C.lista_antigua_ver(cfg, g("texto", ""))
+    if name == "tcsa3000_lista_antigua_ficha": return C.lista_antigua_ficha(cfg, g("clave", ""))
+    if name == "tcsa3000_descubrimiento_retirar": return C.desc_retirar(cfg, g("id", ""), g("motivo", ""), g("agente", ""))
+    if name == "search":
+        db = index.connect()
+        try: r = index.search(db, g("query", ""), None, 10)
+        finally: db.close()
+        return {"results": [{"id": x["fuente"], "title": "%s (%s)" % (x["fuente"], x["cita"]), "text": x["extracto"], "url": "tcsa://" + x["cita"]} for x in r["resultados"]]}
+    if name == "fetch":
+        d = C.leer(cfg, g("id", ""))
+        return {"id": d["ruta"], "title": d["ruta"], "text": d.get("texto") or "", "url": "tcsa://" + d["ruta"], "metadata": {"sha256": d["sha256"]}}
     if name == "tcsa3000_descubrimientos": return sources.descubrimientos(cfg, g("projectId"), g("texto"))
     if name == "tcsa3000_descubrimiento_ficha": return sources.descubrimiento_ficha(cfg, g("id", ""))
-    if name == "tcsa3000_descubrimiento_guardar": return C.desc_guardar(cfg, g("titulo", ""), g("tipo", ""), g("proyectos", []), g("resumen", ""), g("aplicabilidad", ""), g("estado", "OBSERVADO"), g("confianza", "MEDIA"), g("fuentes", []), g("accion", ""), g("advertencias", ""), bool(g("forzar")), g("agente", ""))
+    if name == "tcsa3000_descubrimiento_guardar": return C.desc_guardar(cfg, g("titulo", ""), g("tipo", ""), g("proyectos", []), g("resumen", ""), g("aplicabilidad", ""), g("estado", "OBSERVADO"), g("confianza", "MEDIA"), g("fuentes", []), g("accion", ""), g("advertencias", ""), bool(g("forzar")), g("agente", ""), g("impacto", ""), g("porqueImporta", ""))
     if name == "tcsa3000_descubrimiento_actualizar": return C.desc_actualizar(cfg, g("id", ""), g("nota", ""), g("estado", ""), g("agente", ""))
     if name == "tcsa3000_cierre": return C.cierre(cfg, g("projectId", ""), g("nivel", "C1"), g("resumen", ""), g("resultado", ""), g("pruebas"), g("evidencias"), g("bloqueos"), g("nextAction", ""), g("revisionId", ""), g("estado", ""), g("decisiones"), g("hitos"), g("agente", ""), g("lease"))
     if name == "tcsa3000_operacion": return C.operacion(cfg, g("projectId", ""), g("operationId", ""), g("fase", ""), g("detalle"), g("estado", "SUCCEEDED"), g("agente", ""), g("lease"))
@@ -100,6 +121,13 @@ def call(name: str, a: dict, cfg: dict, modo: str = "SERVICIO") -> dict:
         finally: db.close()
         return {"version": VERSION, "ubicacion": cfg["home"], "modo": modo, "tcsaRoot": cfg["tcsaRoot"], "escrituraPermitida": modo == "SERVICIO",
                 "indice": [{"projectId": d[0], "fuente": d[1], "sha256": d[2], "indexado": d[3]} for d in docs]}
+
+def lista_para(modo: str) -> list:
+    if modo == "REMOTO_LECTURA":
+        return REMOTAS + [t for t in TOOLS if t["name"] not in ESCRITURA]
+    if modo == "REMOTO_ESCRITURA":
+        return REMOTAS + TOOLS
+    return TOOLS
 
 def as_mcp_result(obj, error: bool = False) -> dict:
     return {"content": [{"type": "text", "text": json.dumps(obj, ensure_ascii=False, indent=1)}], "isError": error}
@@ -123,7 +151,7 @@ def handle_jsonrpc(msg: dict, cfg: dict, modo: str = "SERVICIO"):
         elif method == "ping":
             res = {}
         elif method == "tools/list":
-            res = {"tools": TOOLS}
+            res = {"tools": lista_para(modo)}
         elif method == "tools/call":
             try:
                 res = as_mcp_result(call(params.get("name"), params.get("arguments") or {}, cfg, modo))

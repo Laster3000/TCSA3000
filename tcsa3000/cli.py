@@ -6,7 +6,7 @@ if __package__ in (None, ""):
     _aqui = str(Path(__file__).resolve().parent)
     sys.path[:] = [x for x in sys.path if str(Path(x or ".").resolve()) != _aqui]  # evita sombrear la stdlib
     sys.path.insert(0, str(Path(__file__).resolve().parents[1])); __package__ = "tcsa3000"
-from tcsa3000 import VERSION, clients, config, continuidad, fallback, index, normas, credenciales, service, sources
+from tcsa3000 import VERSION, clients, config, continuidad, espejo, fallback, index, normas, credenciales, service, sources
 SIN_VENTANA = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
 def _health(cfg, timeout=2):
@@ -19,7 +19,7 @@ def _health(cfg, timeout=2):
 def _post(cfg, path, body=None):
     req = urllib.request.Request("http://127.0.0.1:%d%s" % (cfg["port"], path), json.dumps(body or {}).encode(),
                                  {"Content-Type": "application/json", "X-TCSA3000-Token": credenciales.token_servicio()})
-    with urllib.request.urlopen(req, timeout=10) as r:
+    with urllib.request.urlopen(req, timeout=180) as r:
         return json.loads(r.read())
 
 def estado(cfg):
@@ -51,6 +51,15 @@ def parar(cfg):
             return {"servicio": "PARADO_FORZADO", "pid": pid}
     return {"servicio": "NO_SE_PUDO_PARAR_VERIFICAR_A_MANO"}
 
+def respaldo(cfg):
+    if _health(cfg):
+        d = _post(cfg, "/api/respaldo")
+    else:
+        d = {"contextoFallback": fallback.exportar(cfg, estado(cfg)), "espejoDrive": espejo.sincronizar(cfg)}
+    e = d["espejoDrive"]
+    txt = ("Respaldo al dia: %d subidos a Drive, %d traidos de Drive" % (e["subidosADrive"], e["importadosDeDrive"])) if e.get("estado") == "OK" else ("Respaldo " + str(e.get("motivo") or e.get("estado")))
+    return {"estado": txt, "detalle": d}
+
 def panel(cfg, pestana=""):
     if not _health(cfg): arrancar(cfg)
     webbrowser.open("http://127.0.0.1:%d/panel?t=%s%s" % (cfg["port"], credenciales.token_servicio(), ("#" + pestana) if pestana else ""))
@@ -67,7 +76,8 @@ def main(argv=None):
     elif cmd == "ubicacion": r = {"ubicacion": cfg["home"], "clientes": [{"ruta": str(p), "tcsa3000": (json.loads(p.read_text("utf-8-sig")).get("mcpServers", {}).get("tcsa3000") or {}).get("env", {}).get("TCSA3000_HOME")} for p in clients.claude_configs()]}
     elif cmd == "directrices": r = normas.leer()
     elif cmd == "reindexar": r = index.reindex(cfg)
-    elif cmd == "respaldo": r = fallback.exportar(cfg, estado(cfg))
+    elif cmd == "respaldo": r = respaldo(cfg)
+    elif cmd == "verificar-respaldo": r = espejo.verificar(cfg)
     elif cmd == "buscar": db = index.connect(); r = index.search(db, " ".join(a[1:])); db.close()
     elif cmd == "lista": r = sources.lista(cfg)
     elif cmd == "descubrimientos": r = sources.descubrimientos(cfg)
@@ -76,7 +86,7 @@ def main(argv=None):
     elif cmd == "arranque": r = continuidad.arranque(cfg)
     elif cmd == "menu": r = continuidad.menu(cfg)
     elif cmd == "reanudar": r = continuidad.reanudar(cfg, a[1] if len(a) > 1 else "")
-    else: r = {"error": "ORDEN_DESCONOCIDA", "ordenes": "estado arrancar parar reiniciar panel [seccion] ubicacion arranque menu reanudar <ID> directrices reindexar respaldo buscar lista descubrimientos registrar-claude snippet"}
+    else: r = {"error": "ORDEN_DESCONOCIDA", "ordenes": "estado arrancar parar reiniciar panel [seccion] ubicacion arranque menu reanudar <ID> directrices reindexar respaldo verificar-respaldo buscar lista descubrimientos registrar-claude snippet"}
     if sys.stdout is not None:  # con pythonw y sin redireccion no hay consola
         print(json.dumps(r, ensure_ascii=False, indent=1))
     return 0
