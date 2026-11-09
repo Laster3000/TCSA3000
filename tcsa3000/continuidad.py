@@ -27,7 +27,7 @@ DOCUMENTOS = {
     "reanudacion": "03-PROYECTOS/TCSA-CORE/PROTOCOLO-REANUDACION-R2.md", "economia": "10-EFICIENCIA-IA/POLITICA-P0.md",
     "lectura-progresiva": "10-EFICIENCIA-IA/LECTURA-PROGRESIVA-P0.md", "lista": "07-LISTA/README.md",
     "descubrimientos": "08-DESCUBRIMIENTOS/README.md", "menu": "02-CATALOGO/MENU-CANDIDATO.md",
-    "bootstrap": "01-INSTRUCCIONES/TCSA - Arranque TCSA3000 (cualquier IA) - v7 (2026-11-09).txt", "activar-ia": "01-INSTRUCCIONES/COMO-ACTIVAR-CHATGPT-CLAUDE.md",
+    "bootstrap": "01-INSTRUCCIONES/TCSA - Arranque TCSA3000 (cualquier IA) - v8 (2026-11-09).txt", "activar-ia": "01-INSTRUCCIONES/COMO-ACTIVAR-CHATGPT-CLAUDE.md",
 }
 _locks: dict = {}
 _glock = threading.Lock()

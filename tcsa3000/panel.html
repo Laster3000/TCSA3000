@@ -27,7 +27,7 @@ th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--line);verti
 </style></head><body>
 <nav>
  <h1>TCSA3000</h1><div class="v">Centro de control · v{{VERSION}}</div>
- <a data-s="inicio">🏠 Inicio</a><a data-s="proyectos">📁 Proyectos</a><a data-s="lista">📝 LISTA</a><a data-s="desc">💡 Descubrimientos</a>
+ <a data-s="inicio">🏠 Inicio</a><a data-s="proyectos">📁 Proyectos</a><a data-s="propuestas">📨 Propuestas</a><a data-s="lista">📝 LISTA</a><a data-s="desc">💡 Descubrimientos</a>
  <div class="sep"></div>
  <a data-s="ia">🔌 Conectar una IA</a><a data-s="normas">📜 Normas y directrices</a><a data-s="cred">🔑 Credenciales</a><a data-s="ajustes">⚙️ Ajustes y respaldos</a><a data-s="historial">🩺 Historial y fallos</a>
  <div id="estadoMini"></div>
@@ -43,6 +43,11 @@ th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--line);verti
 <section id="proyectos" class="hide">
  <h2>Proyectos</h2><p class="sub">Cada proyecto tiene su propio ámbito: lo que hagas en uno no toca a los demás.</p>
  <div class="two"><div><button style="width:100%;margin-bottom:10px" onclick="nuevoProyecto()">＋ Nuevo proyecto</button><div class="list" id="plist"></div></div><div id="pdet" class="card">Elige un proyecto.</div></div>
+</section>
+<section id="propuestas" class="hide">
+ <h2>Propuestas de trabajo</h2><p class="sub">Cada encargo se presenta como propuesta. <b>Al aceptarla, se ejecuta entera en un solo bloque</b>, sin más preguntas, salvo un efecto irreversible no listado, algo que solo tú puedes hacer (UAC, contraseña, pago) o riesgo de perder datos.</p>
+ <div class="row"><select id="prp" style="max-width:220px" onchange="pintaProp()"><option value="">Todos los estados</option><option>PROPUESTA</option><option>ACEPTADA</option><option>EN_EJECUCION</option><option>TERMINADA</option><option>BLOQUEADA</option><option>DESCARTADA</option></select></div>
+ <table id="prtab"></table><div id="prfic"></div>
 </section>
 <section id="lista" class="hide">
  <h2>LISTA</h2><p class="sub">Ideas, mejoras y requisitos de futuro. La LISTA ANTIGUA de MMC es histórico no vigente: se puede ver, pero no se mezcla.</p>
@@ -128,6 +133,7 @@ const L={
    .map(c=>`<div class="card"><div class="k">${esc(c[0])}</div><div class="big">${c[3]?`<span class="pill ${c[3]}">${esc(c[1])}</span>`:esc(c[1])}</div><div class="hint">${esc(c[2])}</div></div>`).join('');
   $('#pcards').innerHTML=a.menu.proyectos.map(p=>`<div class="card" style="cursor:pointer" onclick="abrirP('${jsq(p.projectId)}')"><h3>${esc(p.nombre||p.projectId)}</h3>${pill(p.estado)} <span class="hint">${esc(p.projectId)} · ${esc(p.prioridad||'')}</span>${p.enUsoPor?`<div class="hint">🔒 en uso por ${esc(p.enUsoPor)}</div>`:''}<p class="hint">➜ ${esc(p.nextAction||'sin siguiente paso registrado')}</p></div>`).join('')},
  async proyectos(){await cargaMenu();$('#plist').innerHTML=D.menu.proyectos.map(p=>`<div class="item ${D.sel===p.projectId?'on':''}" onclick="abrirP('${jsq(p.projectId)}')"><b>${esc(p.nombre||p.projectId)}</b><br>${pill(p.estado)} <span class="hint">${esc(p.projectId)}</span></div>`).join('');if(D.sel)detalle(D.sel)},
+ async propuestas(){D.prop=await tool('tcsa3000_propuestas');pintaProp()},
  async lista(){D.lista=await tool('tcsa3000_lista');if(!D.menu)await cargaMenu();$('#lp').innerHTML='<option value="">Todos los proyectos</option>'+D.menu.proyectos.map(p=>`<option>${esc(p.projectId)}</option>`).join('');pintaLista()},
  async desc(){D.desc=await tool('tcsa3000_descubrimientos');pintaDesc()},
  async ia(){pintaCx();const c=await api('/api/clientes');$('#claudeReg').innerHTML=c.claude.length?c.claude.map(x=>`<div class="row"><span class="pill ${x.registrado==='SI'?'':'w'}">${x.registrado==='SI'?'Conectado':esc(x.registrado)}</span><span class="hint" style="flex:1">${esc(x.ruta)}</span><button onclick="reg('${jsq(x.ruta)}',false)">Dar de alta</button><button class="s" onclick="reg('${jsq(x.ruta)}',true)">Dar de baja</button></div>`).join(''):'<p class="hint">No se ha encontrado Claude Desktop en este PC.</p>';
@@ -213,6 +219,16 @@ function nuevoProyecto(){$('#pdet').innerHTML=`<h3>Nuevo proyecto</h3><p class="
  <div class="row" style="gap:16px"><div style="flex:1"><label>Prioridad</label><select id="npr"><option>P0</option><option>P1</option><option selected>P2</option><option>P3</option></select></div><div style="flex:2"><label>Carpeta del código (opcional)</label><input id="nr"></div></div>
  <label>Repositorio (opcional)</label><input id="ng"><div class="row"><button onclick="creaP()">＋ Crear proyecto</button></div>`}
 async function creaP(){try{const r=await tool('tcsa3000_crear_proyecto',{projectId:$('#np').value.trim().toUpperCase(),nombre:$('#nn').value,proposito:$('#nf').value,prioridad:$('#npr').value,raiz:$('#nr').value,repositorio:$('#ng').value,agente:'Panel TCSA3000'});toast('Proyecto '+r.projectId+' creado');D.sel=r.projectId;L.proyectos()}catch(e){toast(e.message,1)}}
+
+function pintaProp(){const f=$('#prp').value,e=(D.prop.propuestas||[]).filter(x=>!f||x.estado===f).slice().reverse();
+ $('#prtab').innerHTML='<tr><th>Id</th><th>Propuesta</th><th>Proyecto</th><th>Estado</th><th>Actualizada</th></tr>'+(e.map(x=>`<tr class="click" onclick="verProp('${jsq(x.id)}')"><td>${esc(x.id)}</td><td>${esc(x.titulo)}</td><td>${esc(x.projectId)}</td><td>${pill(x.estado==='TERMINADA'?'PROBADO':x.estado==='BLOQUEADA'?'BLOQUEADO':x.estado==='PROPUESTA'?'PROPUESTO':x.estado)}</td><td class="hint">${esc((x.actualizada||'').replace('T',' ').slice(0,16))}</td></tr>`).join('')||'<tr><td colspan="5" class="hint">No hay propuestas.</td></tr>')}
+async function verProp(id){const p=await tool('tcsa3000_propuesta_ver',{id});
+ const li=a=>a&&a.length?'<ul>'+a.map(x=>'<li>'+esc(x)+'</li>').join('')+'</ul>':'<p class="hint">—</p>';
+ $('#prfic').innerHTML=`<div class="card" style="margin-top:12px"><h3>${esc(p.id)} · ${esc(p.titulo)} ${pill(p.estado)}</h3><p>${esc(p.objetivo)}</p>
+ <h3>Pasos</h3>${li(p.pasos)}<h3>Efectos que cubre la aceptación</h3>${li(p.efectos)}<h3>Riesgos</h3><p>${esc(p.riesgos||'—')}</p><h3>Criterios y pruebas</h3><p>${esc(p.criterios||'—')}</p>
+ <div class="row">${p.estado==='PROPUESTA'?`<button onclick="estProp('${jsq(p.id)}','ACEPTADA')">✅ Aceptar y ejecutar en bloque</button><button class="s" onclick="estProp('${jsq(p.id)}','DESCARTADA')">Descartar</button>`:''}</div>
+ <h3>Historial</h3><pre>${esc(p.historial.map(h=>h.at.slice(0,16).replace('T',' ')+'  '+h.estado+'  '+(h.quien||'')+'  '+(h.nota||'')+(h.evidencias?'\n    evidencias: '+h.evidencias.join(' | '):'')).join('\n'))}</pre></div>`}
+async function estProp(id,estado){try{await tool('tcsa3000_propuesta_estado',{id,estado,quien:'usuario (panel)',nota:estado==='ACEPTADA'?'Aceptada desde el panel: cubre todos los pasos y efectos listados':'Descartada desde el panel'});toast(estado==='ACEPTADA'?'Aceptada: la IA la ejecutará en un solo bloque':'Descartada');D.prop=await tool('tcsa3000_propuestas');pintaProp();verProp(id)}catch(e){toast(e.message,1)}}
 function pintaLista(){const q=$('#lq').value.toLowerCase(),p=$('#lp').value,e=(D.lista.entradas||[]).filter(x=>(!p||x.projectId===p)&&(!q||JSON.stringify(x).toLowerCase().includes(q)));
  $('#ltab').innerHTML='<tr><th>ID</th><th>Título</th><th>Proyecto</th><th>Estado</th></tr>'+(e.map(x=>`<tr class="click" onclick="fichaL('${jsq(x.id)}')"><td>${esc(x.id)}</td><td>${esc(x.title)}</td><td>${esc(x.projectId)}</td><td>${pill(x.status)}</td></tr>`).join('')||'<tr><td colspan=4 class="hint">Nada que mostrar.</td></tr>')}
 async function fichaL(id){const f=await tool('tcsa3000_lista_ficha',{id});$('#lfic').innerHTML=`<div class="card" style="margin-top:14px"><h3>${esc(id)}</h3><pre>${esc(f.ficha?f.ficha.texto:JSON.stringify(f.registro,null,1))}</pre>

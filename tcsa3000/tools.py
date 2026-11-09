@@ -1,7 +1,7 @@
 """Herramientas MCP de TCSA3000: continuidad TCSA completa para cualquier IA (lectura y escritura controlada)."""
 from __future__ import annotations
 import json
-from . import VERSION, continuidad as C, historial, index, instrucciones, normas, sources
+from . import VERSION, continuidad as C, historial, index, instrucciones, normas, sources, propuestas as PR
 
 def _s(props: dict, req=()):
     return {"type": "object", "properties": props, "required": list(req), "additionalProperties": False}
@@ -26,6 +26,11 @@ TOOLS = [
     {"name": "tcsa3000_buscar", "description": "Busqueda de texto en documentos TCSA indexados, con citas archivo#Lx-Ly y SHA.", "inputSchema": _s({"texto": S, "projectId": PID}, ["texto"])},
     # LISTA / DESCUBRIMIENTOS
     {"name": "tcsa3000_lista", "description": "LISTA actual (07-LISTA). Filtros projectId y estado. No incluye la LISTA ANTIGUA.", "inputSchema": _s({"projectId": PID, "estado": S})},
+    # PROPUESTAS DE TRABAJO (maestro v1.5.0 s.19: aceptar = ejecutar en un solo bloque)
+    {"name": "tcsa3000_propuestas", "description": "Propuestas de trabajo (11-PROPUESTAS): PROPUESTA, ACEPTADA, EN_EJECUCION, TERMINADA, BLOQUEADA.", "inputSchema": _s({"projectId": PID, "estado": S})},
+    {"name": "tcsa3000_propuesta_ver", "description": "Ficha completa de una propuesta de trabajo.", "inputSchema": _s({"id": S}, ["id"])},
+    {"name": "tcsa3000_propuesta_crear", "description": "Crear una propuesta de trabajo: objetivo, pasos, efectos (descargas/instalaciones/cambios protegidos), riesgos y criterios. Al aceptarla se ejecuta entera en un bloque.", "inputSchema": _s({"projectId": PID, "titulo": S, "objetivo": S, "pasos": L, "efectos": L, "riesgos": S, "criterios": S, "listaId": S, "agente": AG}, ["projectId", "titulo", "objetivo"])},
+    {"name": "tcsa3000_propuesta_estado", "description": "Cambiar estado: ACEPTADA (quien acepta), EN_EJECUCION, TERMINADA (con evidencias), BLOQUEADA (motivo), DESCARTADA.", "inputSchema": _s({"id": S, "estado": S, "nota": S, "quien": S, "evidencias": L, "closureId": S}, ["id", "estado"])},
     {"name": "tcsa3000_lista_ficha", "description": "Ficha completa de una entrada de LISTA.", "inputSchema": _s({"id": S}, ["id"])},
     {"name": "tcsa3000_lista_guardar", "description": "GUARDAR en LISTA una idea/mejora/requisito nuevo (avisa de posibles duplicados).", "inputSchema": _s({"titulo": S, "projectId": PID, "motivo": S, "prioridad": S, "criterios": S, "fuente": S, "riesgos": S, "dependencias": S, "forzar": B, "agente": AG}, ["titulo", "projectId", "motivo"])},
     {"name": "tcsa3000_lista_ampliar", "description": "AMPLIAR una entrada de LISTA con una nota y, opcionalmente, cambiar su estado.", "inputSchema": _s({"id": S, "nota": S, "estado": {"type": "string", "enum": list(C.LISTA_ESTADOS)}, "agente": AG}, ["id", "nota"])},
@@ -64,7 +69,7 @@ REMOTAS = [
 NAMES = {t["name"] for t in TOOLS} | {t["name"] for t in REMOTAS}
 ESCRITURA = {"tcsa3000_descubrimiento_retirar", "tcsa3000_instrucciones_nueva", "tcsa3000_abrir_proyecto", "tcsa3000_soltar_proyecto", "tcsa3000_lista_guardar", "tcsa3000_lista_ampliar", "tcsa3000_descubrimiento_guardar",
              "tcsa3000_descubrimiento_actualizar", "tcsa3000_cierre", "tcsa3000_operacion", "tcsa3000_crear_proyecto", "tcsa3000_guardar_conversacion",
-             "tcsa3000_confirmar_sync", "tcsa3000_proponer"}
+             "tcsa3000_confirmar_sync", "tcsa3000_proponer", "tcsa3000_propuesta_crear", "tcsa3000_propuesta_estado"}
 
 def call(name: str, a: dict, cfg: dict, modo: str = "SERVICIO", canal: str | None = None) -> dict:
     a = a or {}
@@ -93,6 +98,10 @@ def call(name: str, a: dict, cfg: dict, modo: str = "SERVICIO", canal: str | Non
     if name == "tcsa3000_lista": return sources.lista(cfg, g("projectId"), g("estado"))
     if name == "tcsa3000_lista_ficha": return sources.lista_ficha(cfg, g("id", ""))
     if name == "tcsa3000_lista_guardar": return C.lista_guardar(cfg, g("titulo", ""), g("projectId", ""), g("motivo", ""), g("prioridad", "P2"), g("criterios", ""), g("fuente", ""), g("riesgos", ""), g("dependencias", ""), bool(g("forzar")), g("agente", ""))
+    if name == "tcsa3000_propuestas": return PR.lista(cfg, g("projectId", ""), g("estado", ""))
+    if name == "tcsa3000_propuesta_ver": return PR.ver(cfg, g("id", ""))
+    if name == "tcsa3000_propuesta_crear": return PR.crear(cfg, g("projectId", ""), g("titulo", ""), g("objetivo", ""), g("pasos"), g("efectos"), g("riesgos", ""), g("criterios", ""), g("agente", ""), g("listaId", ""))
+    if name == "tcsa3000_propuesta_estado": return PR.cambiar(cfg, g("id", ""), g("estado", ""), g("nota", ""), g("quien", ""), g("evidencias"), g("closureId", ""))
     if name == "tcsa3000_lista_ampliar": return C.lista_ampliar(cfg, g("id", ""), g("nota", ""), g("estado", ""), g("agente", ""))
     if name == "tcsa3000_lista_antigua": return C.lista_antigua(cfg, g("texto", ""), bool(g("contenido")))
     if name == "tcsa3000_lista_antigua_ver": return C.lista_antigua_ver(cfg, g("texto", ""))

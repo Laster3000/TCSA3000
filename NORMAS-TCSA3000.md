@@ -1,5 +1,6 @@
 # NORMAS DE TCSA3000 (directrices propias del agente)
-Version: 4
+Version: 5
+Fecha: 2026-11-09 (maestro TCSA v1.5.0)
 Estas normas rigen TCSA3000. Las normas TCSA maestras (INSTRUCCIONES-MAESTRAS.md, protocolo de cierre R2) prevalecen siempre.
 TCSA3000 sustituye al TCSA antiguo sin perder nada: la continuidad CANONICA vive en TCSA3000/TCSA (migrada 180/180 por SHA-256) y la carpeta TCSA de Drive es solo su ESPEJO de respaldo.
 
@@ -29,3 +30,10 @@ TCSA3000 sustituye al TCSA antiguo sin perder nada: la continuidad CANONICA vive
 22. Por proyecto y tipo (clave, p.ej. "arranque") solo hay UNA version VIGENTE; al crear otra, la anterior queda SUSTITUIDA y se conserva. Nunca se reutiliza un numero de version ni se borra una version.
 23. Cada version registra: proyecto, nombre claro, numero, fecha, autor, que cambia y huella SHA-256 (01-INSTRUCCIONES/REGISTRO-INSTRUCCIONES.json). Se crean con tcsa3000_instrucciones_nueva o desde Normas en el centro de control.
 24. Cambiar el registro no cambia los chats: el usuario pega el texto vigente en las instrucciones de cada proyecto. Las instrucciones de proyecto estan subordinadas al maestro TCSA y a estas normas.
+
+## Laboratorio personal y trabajo por propuesta en bloque unico (maestro v1.5.0, secciones 18-20)
+25. Entorno: TCSA, TCSA3000, AUTOFABRICADOR y los proyectos registrados son un LABORATORIO PERSONAL, no comercial. Se puede usar cualquier software, modelo, herramienta, dato o servicio para crear cualquier cosa y usarla en ese entorno personal. Se mantienen: la ley, las licencias y terminos de terceros (se anota la licencia de cada dependencia; si algo se distribuye o se vende, se revisa antes), la seguridad del equipo (MMC, F:, credenciales, zonas protegidas) y las politicas de los proveedores de IA.
+26. Todo encargo no trivial se presenta como PROPUESTA (tcsa3000_propuesta_crear o panel "Propuestas"): objetivo, pasos, efectos (descargas, instalaciones, cambios protegidos), riesgos, criterios y pruebas. Una orden directa y clara del usuario ("haz", "lleva a cabo") cuenta como propuesta aceptada y se registra igual.
+27. ACEPTAR una propuesta autoriza todos sus pasos y efectos listados: se ejecuta en UN SOLO BLOQUE de principio a fin, sin microconfirmaciones. Solo se para por: (a) un efecto NO listado irreversible o protegido; (b) algo que solo puede hacer el usuario (UAC, contrasena, pago, decision personal); (c) riesgo de perder datos. La parada se anota como BLOQUEADA con su motivo; lo demas se decide, se anota y se sigue.
+28. Una propuesta solo pasa a TERMINADA con evidencias de prueba real; al final hay un unico informe (hecho, pendiente, evidencias) y un cierre proporcional C1/C2.
+29. Aislamiento de agentes: WSL2 + Docker Desktop limitado por .wslconfig (6 GB, 6 CPU). Los agentes externos nuevos se ejecutan preferentemente en contenedor (sin red por defecto, RAM/CPU limitadas, solo lectura). Windows Sandbox queda para ejecutables Windows. Docker no sustituye al supervisor original ni a las pruebas WASI de AUTOFABRICADOR.
