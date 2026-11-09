@@ -209,5 +209,13 @@ class Remoto(Base):
         f = tools.call("fetch", {"id": s["results"][0]["id"]}, self.cfg, "REMOTO_LECTURA"); self.assertTrue(f["text"])
         self.assertNotIn("search", {t["name"] for t in tools.lista_para("SERVICIO")})
 
+class OpenAITunel(Base):
+    def test_validaciones_sin_binario_ni_id(self):
+        from tcsa3000 import openai_tunel
+        self.assertEqual(openai_tunel.iniciar(self.cfg)["estado"], "FALTA_TUNNEL_CLIENT")
+        self.assertIsNone(openai_tunel.TUNNEL_ID.fullmatch("tunnel_corto"))
+        self.assertTrue(openai_tunel.TUNNEL_ID.fullmatch("tunnel_6ad36d189c8c81919a5aed0327373c09"))
+        self.assertTrue(openai_tunel.TUNNEL_ID.fullmatch("tunnel_abcd_6ad36d189c8c81919a5aed0327373c09"))
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

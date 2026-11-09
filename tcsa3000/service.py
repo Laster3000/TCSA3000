@@ -10,11 +10,12 @@ if __package__ in (None, ""):
     _aqui = str(Path(__file__).resolve().parent)
     sys.path[:] = [x for x in sys.path if str(Path(x or ".").resolve()) != _aqui]  # evita sombrear la stdlib
     sys.path.insert(0, str(Path(__file__).resolve().parents[1])); __package__ = "tcsa3000"
-from tcsa3000 import VERSION, clients, config, continuidad, espejo, fallback, index, normas, credenciales, sources, tools, tunel
+from tcsa3000 import VERSION, clients, config, continuidad, espejo, fallback, index, normas, credenciales, sources, tools, tunel, openai_tunel
 from tcsa3000.storage import journal, utc, write_json
 
 STARTED = time.time()
 REMOTO = re.compile(r"^/remoto/([A-Za-z0-9_-]{20,})/mcp/?$")
+OPENAI = re.compile(r"^/openai/([A-Za-z0-9_-]{20,})/mcp/?$")
 
 def state_file():
     return config.data_dir() / "servicio.json"
@@ -54,7 +55,7 @@ class H(BaseHTTPRequestHandler):
                 return self._send(303, "", "text/plain", {"Location": "/panel", "Set-Cookie": "tcsa3000=%s; HttpOnly; SameSite=Strict; Path=/" % t})
             if not self._token_ok(): return self._send(401, "<h1>401</h1><p>Abre el panel desde la bandeja o con TCSA3000.cmd panel.</p>", "text/html; charset=utf-8")
             return self._send(200, panel_html(self.server.port), "text/html; charset=utf-8")
-        if u.path == "/mcp" or REMOTO.match(u.path): return self._send(405, {"error": "USA_POST"}, extra={"Allow": "POST"})
+        if u.path == "/mcp" or REMOTO.match(u.path) or OPENAI.match(u.path): return self._send(405, {"error": "USA_POST"}, extra={"Allow": "POST"})
         if not self._token_ok(): return self._send(401, {"error": "NO_AUTORIZADO"})
         try:
             if u.path == "/api/estado": return self._send(200, self.server.estado())
@@ -69,16 +70,19 @@ class H(BaseHTTPRequestHandler):
                 raices = [x.get("sourceRoot") or x.get("currentRuntimeRoot") for x in continuidad._catalogo(continuidad.root(cfg))[1].get("projects", [])]
                 return self._send(200, credenciales.inventario([r for r in raices if r] + [cfg["home"]]))
             if u.path == "/api/tunel": return self._send(200, tunel.estado(cfg))
+            if u.path == "/api/openai-tunel": return self._send(200, openai_tunel.estado(cfg))
             if u.path == "/api/espejo": return self._send(200, self.server.ultimo_espejo or {"estado": "AUN_NO_EJECUTADO"})
             if u.path == "/api/herramientas": return self._send(200, [{"name": t["name"], "description": t["description"], "escritura": t["name"] in tools.ESCRITURA} for t in tools.TOOLS])
         except Exception as e:
             return self._send(500, {"error": str(e)})
         self._send(404, {"error": "NO_ENCONTRADO"})
-    def _remoto(self, secreto_url: str):
+    def _remoto(self, secreto_url: str, canal: str = "cloudflare"):
         cfg = self.server.cfg
-        if not hmac.compare_digest(secreto_url, tunel.secreto()):
+        esperado = openai_tunel.secreto() if canal == "openai" else tunel.secreto()
+        if not hmac.compare_digest(secreto_url, esperado):
             time.sleep(0.5); return self._send(404, {"error": "NO_ENCONTRADO"})
-        modo = "REMOTO_ESCRITURA" if cfg.get("remotoEscritura") else "REMOTO_LECTURA"
+        escribe = cfg.get("openaiEscritura", True) if canal == "openai" else cfg.get("remotoEscritura")
+        modo = "REMOTO_ESCRITURA" if escribe else "REMOTO_LECTURA"
         try:
             body = self._body()
         except Exception:
@@ -86,7 +90,7 @@ class H(BaseHTTPRequestHandler):
         msgs = body if isinstance(body, list) else [body]
         for m in msgs:
             if isinstance(m, dict) and m.get("method") == "tools/call":
-                journal(config.data_dir() / "remoto.journal.jsonl", "REMOTO_TOOL", {"name": (m.get("params") or {}).get("name"), "modo": modo})
+                journal(config.data_dir() / "remoto.journal.jsonl", "REMOTO_TOOL", {"name": (m.get("params") or {}).get("name"), "modo": modo, "canal": canal})
         out = [r for r in (tools.handle_jsonrpc(m, cfg, modo) for m in msgs if isinstance(m, dict)) if r]
         if not out: return self._send(202, b"", "text/plain")
         return self._send(200, out if isinstance(body, list) else out[0])
@@ -94,6 +98,8 @@ class H(BaseHTTPRequestHandler):
         u = urlparse(self.path); cfg = self.server.cfg
         m = REMOTO.match(u.path)
         if m: return self._remoto(m.group(1))
+        m = OPENAI.match(u.path)
+        if m: return self._remoto(m.group(1), "openai")
         if not self._token_ok() or not self._origin_ok(): return self._send(401, {"error": "NO_AUTORIZADO"})
         try:
             body = self._body()
@@ -126,6 +132,14 @@ class H(BaseHTTPRequestHandler):
             if u.path == "/api/reindexar": return self._send(200, index.reindex(cfg))
             if u.path == "/api/respaldo": return self._send(200, self.server.respaldar())
             if u.path == "/api/espejo/verificar": return self._send(200, espejo.verificar(cfg))
+            if u.path == "/api/openai-tunel/descargar": return self._send(200, openai_tunel.descargar())
+            if u.path == "/api/openai-tunel/importar": return self._send(200, openai_tunel.importar_de_windows())
+            if u.path == "/api/openai-tunel/clave":
+                v = (body.get("valor") or "").strip()
+                if len(v) < 20: raise ValueError("CLAVE_INVALIDA")
+                return self._send(200, credenciales.guardar(openai_tunel.CRED, v, "Clave de runtime del Secure MCP Tunnel de OpenAI"))
+            if u.path == "/api/openai-tunel/iniciar": return self._send(200, openai_tunel.iniciar(self.server.cfg))
+            if u.path == "/api/openai-tunel/parar": return self._send(200, openai_tunel.parar(cfg))
             if u.path == "/api/tunel/descargar": return self._send(200, tunel.descargar())
             if u.path == "/api/tunel/iniciar": return self._send(200, tunel.iniciar(cfg))
             if u.path == "/api/tunel/parar": return self._send(200, tunel.parar(cfg))
@@ -158,7 +172,7 @@ class Server(ThreadingHTTPServer):
                 "respaldoAccesible": Path(self.cfg["respaldoDir"]).parent.exists(), "ultimoEspejo": (self.ultimo_espejo or {}).get("at"),
                 "inicio": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(STARTED)), "python": sys.executable}
     def guardar_config(self, body: dict):
-        allowed = {"tcsaRoot", "respaldoDir", "fallbackDir", "port", "fallbackEveryMinutes", "allowlist", "remotoEscritura", "tunelAlArrancar", "tunelHost"}
+        allowed = {"tcsaRoot", "respaldoDir", "fallbackDir", "port", "fallbackEveryMinutes", "allowlist", "remotoEscritura", "tunelAlArrancar", "tunelHost", "openaiTunnelId", "openaiEscritura", "openaiTunelAlArrancar"}
         bad = set(body) - allowed
         if bad: raise ValueError("CLAVES_NO_PERMITIDAS:" + ",".join(sorted(bad)))
         p = config.config_path(); cur = json.loads(p.read_text("utf-8-sig")) if p.exists() else {}
@@ -175,8 +189,9 @@ class Server(ThreadingHTTPServer):
         return {"contextoFallback": fb, "espejoDrive": self.ultimo_espejo}
     def apagar(self):
         time.sleep(0.3); journal(config.data_dir() / "servicio.journal.jsonl", "APAGADO", {"pid": os.getpid()})
-        try: tunel.parar(self.cfg)
-        except Exception: pass
+        for t in (tunel, openai_tunel):
+            try: t.parar(self.cfg)
+            except Exception: pass
         self._stop.set(); self.shutdown()
     def reiniciar(self):
         lanzar(esperar=True); self.apagar()
@@ -186,6 +201,9 @@ class Server(ThreadingHTTPServer):
         if self.cfg.get("tunelAlArrancar"):
             try: tunel.iniciar(self.cfg)
             except Exception: pass
+        if self.cfg.get("openaiTunelAlArrancar"):
+            try: openai_tunel.iniciar(self.cfg)
+            except Exception as e: journal(config.data_dir() / "servicio.journal.jsonl", "OPENAI_TUNEL_ERROR", {"error": str(e)})
         nxt = time.time() + 5
         while not self._stop.wait(1):
             if time.time() >= nxt:

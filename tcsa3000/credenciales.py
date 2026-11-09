@@ -43,7 +43,7 @@ def leer(nombre: str) -> str | None:
     rec = _load().get(nombre)
     return _dpapi(base64.b64decode(rec["cifrado"]), False).decode("utf-8") if rec else None
 
-SISTEMA = ("tcsa3000-servicio", "tcsa3000-remoto")
+SISTEMA = ("tcsa3000-servicio", "tcsa3000-remoto", "tcsa3000-openai")
 
 def listar() -> list:
     return [{"nombre": k, "descripcion": v.get("descripcion", ""), "actualizado": v.get("actualizado"), "valor": "********",

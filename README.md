@@ -19,7 +19,9 @@ Drive se trae aquí, y si algo cambió en los dos lados se guardan ambas version
 - **Un agente por proyecto** (concesión LEASE); proyectos distintos pueden trabajarse a la vez.
 - **Nunca borra**: los índices se cambian por CAS sobre bytes con preimagen en `99-RECUPERACION/TCSA3000/`.
 - **Respaldo** automático en Drive (espejo) para IAs sin MCP o si el servicio cae (modo degradado de solo lectura).
-- **ChatGPT**: túnel HTTPS de Cloudflare hacia una dirección secreta que solo expone el MCP (solo lectura por defecto;
+- **ChatGPT (recomendado)**: Secure MCP Tunnel de OpenAI ("Conexión: Túnel" en ChatGPT). Conexión solo saliente hacia OpenAI,
+  ChatGPT puede leer y escribir; `tunnel-client` oficial descargado a petición y verificado con SHA256SUMS; clave de runtime cifrada.
+- **ChatGPT (alternativa)**: túnel HTTPS de Cloudflare hacia una dirección secreta que solo expone el MCP (solo lectura por defecto;
   `cloudflared` se descarga únicamente si lo pides, de la publicación oficial, y se comprueba su firma).
 - **LISTA ANTIGUA** visible entera (histórico no vigente, solo consulta).
 - **DESCUBRIMIENTOS** solo para lo importante (impacto ALTO/CRÍTICO y por qué importa); lo menor se retira sin destruirse.
