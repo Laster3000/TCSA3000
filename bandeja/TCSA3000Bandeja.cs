@@ -7,7 +7,9 @@ using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.IO;
 using System.Net;
+using System.Text;
 using System.Text.RegularExpressions;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Web.Script.Serialization;
 using System.Windows.Forms;
@@ -43,6 +45,9 @@ class Bandeja : ApplicationContext
     readonly NotifyIcon icono = new NotifyIcon();
     readonly ContextMenuStrip menu = new ContextMenuStrip();
     readonly System.Windows.Forms.Timer reloj = new System.Windows.Forms.Timer();
+    readonly System.Windows.Forms.Timer marcador = new System.Windows.Forms.Timer();
+    const string AUMID = "Laster3000.TCSA3000";
+    const string TITULO = "TCSA3000 \u00B7 Centro de control";
     readonly string home = Home();
     readonly Icon icOn, icOff;
     ToolStripMenuItem cabecera, proyectos, arrancar, parar, reiniciar;
@@ -81,6 +86,11 @@ class Bandeja : ApplicationContext
         icono.MouseClick += delegate(object s, MouseEventArgs e) { if (e.Button == MouseButtons.Left) Panel(""); };
         SystemEvents.SessionEnding += delegate { Salir(true); };
         RegistrarBandeja();  // el servicio solo vive mientras este icono esta abierto (Windows limpio al cerrar)
+        AppVentana.ProcesoPropio(AUMID);
+        AppVentana.AccesoDirecto(Application.ExecutablePath, "TCSA3000", AUMID, "TCSA3000 - continuidad TCSA");
+        marcador.Interval = 1000;  // identidad e icono de TCSA3000 para la ventana del centro de control
+        marcador.Tick += delegate { AppVentana.Marcar(TITULO, AUMID, Application.ExecutablePath, "TCSA3000"); };
+        marcador.Start();
         reloj.Interval = 5000;
         reloj.Tick += delegate { Comprobar(false); };
         reloj.Start();
@@ -343,5 +353,136 @@ class Bandeja : ApplicationContext
             using (var pen = new Pen(Color.White, 2f)) g.DrawEllipse(pen, 19, 19, 12, 12);
         }
         return Icon.FromHandle(bmp.GetHicon());
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Identidad propia en la barra de tareas (Windows 7+): la ventana del menu (Edge --app) recibe el
+// AppUserModelID del programa y sus propiedades de "relanzar". Asi, al anclarla, Windows ancla el
+// .exe del programa con SU icono (no Microsoft Edge) y la ventana se agrupa con ese icono anclado.
+// El acceso directo del menu Inicio lleva el mismo AppUserModelID.
+// ---------------------------------------------------------------------------------------------
+static class AppVentana
+{
+    [ComImport, Guid("886D8EEB-8CF2-4446-8D02-CDBA1DBDCF99"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    interface IPropertyStore
+    {
+        void GetCount(out uint c);
+        void GetAt(uint i, out PROPERTYKEY k);
+        void GetValue(ref PROPERTYKEY k, out PROPVARIANT v);
+        void SetValue(ref PROPERTYKEY k, ref PROPVARIANT v);
+        void Commit();
+    }
+
+    [ComImport, Guid("000214F9-0000-0000-C000-000000000046"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    interface IShellLinkW
+    {
+        void GetPath([Out, MarshalAs(UnmanagedType.LPWStr)] StringBuilder f, int c, IntPtr fd, uint fl);
+        void GetIDList(out IntPtr p);
+        void SetIDList(IntPtr p);
+        void GetDescription([Out, MarshalAs(UnmanagedType.LPWStr)] StringBuilder s, int c);
+        void SetDescription([MarshalAs(UnmanagedType.LPWStr)] string s);
+        void GetWorkingDirectory([Out, MarshalAs(UnmanagedType.LPWStr)] StringBuilder s, int c);
+        void SetWorkingDirectory([MarshalAs(UnmanagedType.LPWStr)] string s);
+        void GetArguments([Out, MarshalAs(UnmanagedType.LPWStr)] StringBuilder s, int c);
+        void SetArguments([MarshalAs(UnmanagedType.LPWStr)] string s);
+        void GetHotkey(out short h);
+        void SetHotkey(short h);
+        void GetShowCmd(out int s);
+        void SetShowCmd(int s);
+        void GetIconLocation([Out, MarshalAs(UnmanagedType.LPWStr)] StringBuilder s, int c, out int i);
+        void SetIconLocation([MarshalAs(UnmanagedType.LPWStr)] string s, int i);
+        void SetRelativePath([MarshalAs(UnmanagedType.LPWStr)] string s, uint r);
+        void Resolve(IntPtr h, uint f);
+        void SetPath([MarshalAs(UnmanagedType.LPWStr)] string s);
+    }
+
+    [ComImport, Guid("00021401-0000-0000-C000-000000000046")]
+    class ShellLink { }
+
+    [StructLayout(LayoutKind.Sequential, Pack = 4)]
+    struct PROPERTYKEY { public Guid fmtid; public uint pid; public PROPERTYKEY(Guid g, uint p) { fmtid = g; pid = p; } }
+
+    [StructLayout(LayoutKind.Explicit, Size = 24)]
+    struct PROPVARIANT { [FieldOffset(0)] public ushort vt; [FieldOffset(8)] public IntPtr p; }
+
+    [DllImport("shell32.dll")] static extern int SHGetPropertyStoreForWindow(IntPtr hwnd, ref Guid iid, [Out, MarshalAs(UnmanagedType.Interface)] out IPropertyStore ps);
+    [DllImport("ole32.dll")] static extern int PropVariantClear(ref PROPVARIANT pv);
+    [DllImport("shell32.dll", CharSet = CharSet.Unicode)] static extern int SetCurrentProcessExplicitAppUserModelID(string id);
+    delegate bool EnumProc(IntPtr h, IntPtr l);
+    [DllImport("user32.dll")] static extern bool EnumWindows(EnumProc p, IntPtr l);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetWindowText(IntPtr h, StringBuilder s, int n);
+    [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr h);
+
+    static readonly Guid FMT = new Guid("9F4C2855-9F79-4B39-A8D0-E1D42DE1D5F3");
+    static PROPERTYKEY K(uint pid) { return new PROPERTYKEY(FMT, pid); }
+
+    static void Poner(IPropertyStore ps, uint pid, string valor)
+    {
+        var v = new PROPVARIANT { vt = 31, p = Marshal.StringToCoTaskMemUni(valor) };  // VT_LPWSTR
+        var k = K(pid);
+        try { ps.SetValue(ref k, ref v); } finally { PropVariantClear(ref v); }
+    }
+
+    public static void ProcesoPropio(string aumid) { try { SetCurrentProcessExplicitAppUserModelID(aumid); } catch { } }
+
+    // Marca las ventanas visibles cuyo titulo empieza por 'titulo'. Devuelve cuantas marco por primera vez.
+    public static int Marcar(string titulo, string aumid, string exe, string nombre)
+    {
+        var hs = new List<IntPtr>();
+        EnumWindows(delegate(IntPtr h, IntPtr l)
+        {
+            if (!IsWindowVisible(h)) return true;
+            var sb = new StringBuilder(300);
+            GetWindowText(h, sb, 300);
+            if (sb.ToString().StartsWith(titulo)) hs.Add(h);
+            return true;
+        }, IntPtr.Zero);
+        int n = 0;
+        foreach (var h in hs)
+        {
+            try
+            {
+                var iid = typeof(IPropertyStore).GUID;
+                IPropertyStore ps;
+                if (SHGetPropertyStoreForWindow(h, ref iid, out ps) != 0 || ps == null) continue;
+                var kid = K(5);
+                PROPVARIANT actual;
+                ps.GetValue(ref kid, out actual);
+                string ya = actual.vt == 31 ? Marshal.PtrToStringUni(actual.p) : null;
+                PropVariantClear(ref actual);
+                if (ya == aumid) { Marshal.ReleaseComObject(ps); continue; }  // ya marcada (y Edge no la cambio)
+                Poner(ps, 2, "\"" + exe + "\"");          // RelaunchCommand
+                Poner(ps, 3, exe + ",0");                 // RelaunchIconResource
+                Poner(ps, 4, nombre);                     // RelaunchDisplayNameResource
+                Poner(ps, 5, aumid);                      // ID (al final)
+                ps.Commit();
+                Marshal.ReleaseComObject(ps);
+                n++;
+            }
+            catch { }
+        }
+        return n;
+    }
+
+    // Acceso directo del menu Inicio con el mismo AppUserModelID (para anclar desde Inicio).
+    public static void AccesoDirecto(string exe, string nombre, string aumid, string descripcion)
+    {
+        try
+        {
+            string dir = Environment.GetFolderPath(Environment.SpecialFolder.Programs);
+            string lnk = Path.Combine(dir, nombre + ".lnk");
+            var sl = (IShellLinkW)new ShellLink();
+            sl.SetPath(exe);
+            sl.SetWorkingDirectory(Path.GetDirectoryName(exe));
+            sl.SetIconLocation(exe, 0);
+            sl.SetDescription(descripcion);
+            var ps = (IPropertyStore)sl;
+            Poner(ps, 5, aumid);
+            ps.Commit();
+            ((System.Runtime.InteropServices.ComTypes.IPersistFile)sl).Save(lnk, true);
+            Marshal.ReleaseComObject(sl);
+        }
+        catch { }
     }
 }
