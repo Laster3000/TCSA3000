@@ -55,6 +55,10 @@ class H(BaseHTTPRequestHandler):
                 return self._send(303, "", "text/plain", {"Location": "/panel", "Set-Cookie": "tcsa3000=%s; HttpOnly; SameSite=Strict; Path=/" % t})
             if not self._token_ok(): return self._send(401, "<h1>401</h1><p>Abre el panel desde la bandeja o con TCSA3000.cmd panel.</p>", "text/html; charset=utf-8")
             return self._send(200, panel_html(self.server.port), "text/html; charset=utf-8")
+        if u.path.startswith("/.well-known/"):
+            # Descubrimiento OAuth (RFC 9728/8414): este MCP no usa OAuth. 404 = "sin metadatos", que es lo que esperan
+            # los clientes (tunnel-client de OpenAI) para continuar sin autenticacion. No da acceso a nada.
+            return self._send(404, {"error": "NOT_FOUND"})
         if u.path == "/mcp" or REMOTO.match(u.path) or OPENAI.match(u.path): return self._send(405, {"error": "USA_POST"}, extra={"Allow": "POST"})
         if not self._token_ok(): return self._send(401, {"error": "NO_AUTORIZADO"})
         try:

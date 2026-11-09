@@ -113,6 +113,10 @@ class ServicioMCP(Base):
         self.assertIn("DESC-001", r["result"]["content"][0]["text"]); self.assertFalse(r["result"]["isError"])
         bad = self.req("/mcp", {"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "rm_rf", "arguments": {}}})
         self.assertTrue(bad["result"]["isError"])
+    def test_oauth_discovery_returns_404_not_401(self):
+        for path in ("/.well-known/oauth-protected-resource", "/.well-known/oauth-protected-resource/openai/x/mcp", "/.well-known/oauth-authorization-server"):
+            with self.assertRaises(urllib.error.HTTPError) as e: urllib.request.urlopen(self.base + path, timeout=5)
+            self.assertEqual(e.exception.code, 404)
     def test_config_rejects_unknown_keys_and_panel_auth(self):
         with self.assertRaises(urllib.error.HTTPError): self.req("/api/config", {"host": "0.0.0.0"})
         with self.assertRaises(urllib.error.HTTPError) as e: urllib.request.urlopen(self.base + "/panel", timeout=5)
