@@ -11,10 +11,11 @@ using System.Text.RegularExpressions;
 using System.Threading;
 using System.Web.Script.Serialization;
 using System.Windows.Forms;
+using Microsoft.Win32;
 
 [assembly: System.Reflection.AssemblyTitle("TCSA3000")]
 [assembly: System.Reflection.AssemblyProduct("TCSA3000")]
-[assembly: System.Reflection.AssemblyVersion("0.4.0.4")]
+[assembly: System.Reflection.AssemblyVersion("0.7.0.8")]
 
 static class Programa
 {
@@ -78,10 +79,22 @@ class Bandeja : ApplicationContext
         icono.Visible = true;
         icono.MouseDoubleClick += delegate { Panel(""); };
         icono.MouseClick += delegate(object s, MouseEventArgs e) { if (e.Button == MouseButtons.Left) Panel(""); };
+        SystemEvents.SessionEnding += delegate { Salir(true); };
+        RegistrarBandeja();  // el servicio solo vive mientras este icono esta abierto (Windows limpio al cerrar)
         reloj.Interval = 5000;
         reloj.Tick += delegate { Comprobar(false); };
         reloj.Start();
         Comprobar(true);
+    }
+
+    void RegistrarBandeja()
+    {
+        try
+        {
+            var d = Path.Combine(home, "data"); Directory.CreateDirectory(d);
+            File.WriteAllText(Path.Combine(d, "bandeja.json"), "{\"pid\": " + Process.GetCurrentProcess().Id + ", \"exe\": \"TCSA3000.exe\", \"desde\": \"" + DateTime.UtcNow.ToString("s") + "Z\"}");
+        }
+        catch (Exception ex) { Log("RegistrarBandeja: " + ex.Message); }
     }
 
     // ------------------------------------------------------------------ menu
@@ -129,8 +142,7 @@ class Bandeja : ApplicationContext
             Item("Copiar a Drive ahora (respaldo)", delegate { Accion("respaldo", "Copiando la continuidad a Drive..."); }),
             servicio, ajustes,
             new ToolStripSeparator(),
-            Item("Salir y detener TCSA3000", delegate { Salir(true); }),
-            Item("Quitar solo el icono (el servicio sigue)", delegate { Salir(false); })
+            Item("Salir y detener TCSA3000", delegate { Salir(true); })
         });
         menu.Opening += delegate { CargarProyectos(); };
     }
@@ -191,10 +203,14 @@ class Bandeja : ApplicationContext
         });
     }
 
+    bool saliendo = false;
     void Salir(bool detener)
     {
+        if (saliendo) return;
+        saliendo = true;
         reloj.Stop();
         if (detener) LanzarCli(home, "parar", true);
+        try { File.Delete(Path.Combine(home, "data", "bandeja.json")); } catch { }
         icono.Visible = false;
         icono.Dispose();
         ExitThread();

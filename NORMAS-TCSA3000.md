@@ -1,5 +1,5 @@
 # NORMAS DE TCSA3000 (directrices propias del agente)
-Version: 5
+Version: 6
 Fecha: 2026-11-09 (maestro TCSA v1.5.0)
 Estas normas rigen TCSA3000. Las normas TCSA maestras (INSTRUCCIONES-MAESTRAS.md, protocolo de cierre R2) prevalecen siempre.
 TCSA3000 sustituye al TCSA antiguo sin perder nada: la continuidad CANONICA vive en TCSA3000/TCSA (migrada 180/180 por SHA-256) y la carpeta TCSA de Drive es solo su ESPEJO de respaldo.
@@ -37,3 +37,6 @@ TCSA3000 sustituye al TCSA antiguo sin perder nada: la continuidad CANONICA vive
 27. ACEPTAR una propuesta autoriza todos sus pasos y efectos listados: se ejecuta en UN SOLO BLOQUE de principio a fin, sin microconfirmaciones. Solo se para por: (a) un efecto NO listado irreversible o protegido; (b) algo que solo puede hacer el usuario (UAC, contrasena, pago, decision personal); (c) riesgo de perder datos. La parada se anota como BLOQUEADA con su motivo; lo demas se decide, se anota y se sigue.
 28. Una propuesta solo pasa a TERMINADA con evidencias de prueba real; al final hay un unico informe (hecho, pendiente, evidencias) y un cierre proporcional C1/C2.
 29. Aislamiento de agentes: WSL2 + Docker Desktop limitado por .wslconfig (6 GB, 6 CPU). Los agentes externos nuevos se ejecutan preferentemente en contenedor (sin red por defecto, RAM/CPU limitadas, solo lectura). Windows Sandbox queda para ejecutables Windows. Docker no sustituye al supervisor original ni a las pruebas WASI de AUTOFABRICADOR.
+
+## Windows limpio (2026-11-09)
+30. Con TCSA3000.exe o AUTOFABRICADOR.exe cerrados, Windows queda sin su carga: sus servicios, tuneles, vigilantes y procesos solo viven mientras el icono esta abierto; si el icono se cierra (o falla) se apagan solos en menos de un minuto. No hay opcion "quitar solo el icono". Nada de TCSA ni AUTOFABRICADOR arranca con Windows. Docker no arranca con Windows: se enciende bajo demanda y se apaga (con la VM de WSL si no hay otra distro en uso) al cerrar AUTOFABRICADOR si lo encendio el. Sin servicio, las IAs siguen leyendo TCSA en modo degradado de solo lectura.

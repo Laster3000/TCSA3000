@@ -309,7 +309,16 @@ class Server(ThreadingHTTPServer):
         except Exception as e:
             historial.registrar_error("conexiones", str(e))
         nxt = time.time() + 5
+        from . import bandeja
+        sin_icono, chequeo = 0, time.time() + 15
         while not self._stop.wait(1):
+            if time.time() >= chequeo and bandeja.atado(self.cfg):
+                chequeo = time.time() + 10
+                sin_icono = 0 if bandeja.viva() else sin_icono + 1
+                if sin_icono >= 3:  # TCSA3000.exe cerrado: Windows limpio (las IAs quedan en solo lectura)
+                    journal(config.data_dir() / "servicio.journal.jsonl", "APAGADO_BANDEJA_CERRADA", {"pid": os.getpid()})
+                    threading.Thread(target=self.apagar, daemon=True).start()
+                    return
             if time.time() >= nxt:
                 nxt = time.time() + 60 * max(1, int(self.cfg["fallbackEveryMinutes"]))
                 try: index.reindex(self.cfg)  # la busqueda incluye lo guardado desde el ultimo ciclo

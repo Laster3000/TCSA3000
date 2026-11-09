@@ -28,6 +28,15 @@ def estado(cfg):
 
 def arrancar(cfg):
     if _health(cfg): return {"servicio": "YA_EN_MARCHA"}
+    from . import bandeja
+    if bandeja.atado(cfg) and not bandeja.viva():
+        # El servicio vive solo con el icono abierto: se abre TCSA3000.exe, que lo arranca.
+        if bandeja.abrir_icono():
+            for _ in range(80):
+                time.sleep(0.25)
+                h = _health(cfg)
+                if h: return {"servicio": "EN_MARCHA", "pid": h["pid"], "via": "TCSA3000.exe"}
+            return {"servicio": "NO_ARRANCO", "ayuda": "Abre TCSA3000.exe"}
     service.lanzar()
     for _ in range(40):
         time.sleep(0.25)
