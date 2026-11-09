@@ -1,0 +1,16 @@
+# Estado local y secretos: nunca al repo publico
+data/
+tcsa3000.config.json
+*.sqlite3
+*.dpapi.json
+*.bak-tcsa3000-*
+# Binarios y copias
+runtime/
+VERSIONES/
+__pycache__/
+*.pyc
+# Documentos privados de continuidad TCSA (viven en Drive)
+CAPSULA-PROYECTO.json
+CHECKPOINT-ARRANQUE.json
+INVESTIGACION-Y-PLAN.md
+REGISTRAR-TCSA3000.ps1
