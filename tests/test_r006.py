@@ -63,6 +63,14 @@ class GitHub(Base):
              mock.patch.object(espejo_github, "_api", return_value=(200, {"private": False, "full_name": "u/r"})):
             self.assertEqual(espejo_github.comprobar(cfg)["estado"], "BLOQUEADO_REPO_PUBLICO")
             self.assertEqual(espejo_github.sincronizar(cfg)["estado"], "BLOQUEADO_REPO_PUBLICO")
+    def test_token_solo_lectura_y_mismo_repo(self):
+        cfg = dict(self.cfg, githubRespaldoRepo="u/priv", githubPublicoRepo="u/pub")
+        def api(tok, metodo, ruta, cuerpo=None, timeout=120):
+            if metodo == "GET": return 200, {"private": True, "full_name": "u/priv", "default_branch": "main"}
+            return 403, {"message": "Resource not accessible by personal access token"}
+        with mock.patch.object(espejo_github.credenciales, "leer", return_value="t" * 40), mock.patch.object(espejo_github, "_api", side_effect=api):
+            r = espejo_github.comprobar(cfg); self.assertEqual(r["estado"], "TOKEN_SOLO_LECTURA"); self.assertIn("Read and write", r["ayuda"])
+            self.assertEqual(espejo_github.comprobar(dict(cfg, githubPublicoRepo="u/priv"))["estado"], "MISMO_REPO")
     def test_sha_de_blob_como_git(self):
         self.assertEqual(espejo_github._blob_sha(b"hola\n"), "5c1b14949828006ed75a3e8858957f86a2f7e2eb")
 

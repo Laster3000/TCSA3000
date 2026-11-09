@@ -168,7 +168,9 @@ class H(BaseHTTPRequestHandler):
                 r = clients.registrar(p, bool(body.get("quitar")))
                 journal(config.data_dir() / "servicio.journal.jsonl", "REGISTRO_MCP", r); return self._send(200, r)
             if u.path == "/api/config":
-                r = self.server.guardar_config(body); return self._send(200, r)
+                r = self.server.guardar_config(body)
+                if any(k.startswith("github") for k in body): self.server.github_ahora()
+                return self._send(200, r)
             if u.path == "/api/proponer":
                 return self._send(200, sources.proponer(body.get("tipo"), body.get("titulo"), body.get("projectId"), body.get("resumen"), body.get("fuente", ""), "panel"))
             if u.path == "/api/reindexar": return self._send(200, index.reindex(cfg))
@@ -177,7 +179,8 @@ class H(BaseHTTPRequestHandler):
             if u.path == "/api/github/token":
                 v = (body.get("valor") or "").strip()
                 if len(v) < 20: raise ValueError("TOKEN_INVALIDO")
-                return self._send(200, credenciales.guardar(espejo_github.CRED, v, "Token del respaldo GitHub privado (Contents RW, un repositorio)"))
+                r = credenciales.guardar(espejo_github.CRED, v, "Token de GitHub de TCSA3000 (Contents RW en los repositorios elegidos)")
+                self.server.github_ahora(); return self._send(200, r)
             if u.path == "/api/github/comprobar-publico": return self._send(200, espejo_github.comprobar_publico(self.server.cfg))
             if u.path == "/api/github/publicar":
                 self.server.ultimo_publico = espejo_github.publicar(self.server.cfg); return self._send(200, self.server.ultimo_publico)
@@ -232,7 +235,10 @@ class Server(ThreadingHTTPServer):
         return {"servicio": "EN_MARCHA", "version": VERSION, "pid": os.getpid(), "puerto": self.port, "ubicacion": self.cfg["home"],
                 "tcsaRoot": self.cfg["tcsaRoot"], "tcsaAccesible": Path(self.cfg["tcsaRoot"]).is_dir(), "respaldoDrive": self.cfg["respaldoDir"],
                 "respaldoAccesible": Path(self.cfg["respaldoDir"]).parent.exists(), "ultimoEspejo": (self.ultimo_espejo or {}).get("at"),
-                "github": {"repo": self.cfg.get("githubRespaldoRepo") or None, "ultimo": (self.ultimo_github or {}).get("at"), "estado": (self.ultimo_github or {}).get("estado")},
+                "github": {"repo": self.cfg.get("githubRespaldoRepo") or None, "ultimo": (self.ultimo_github or {}).get("at"), "estado": (self.ultimo_github or {}).get("estado"),
+                           "ayuda": (self.ultimo_github or {}).get("ayuda"), "sincronizando": bool(getattr(self, "gh_ocupado", False))},
+                "githubPublico": {"repo": self.cfg.get("githubPublicoRepo") if self.cfg.get("githubPublicoAuto") else None, "ultimo": (self.ultimo_publico or {}).get("at"),
+                                  "estado": (self.ultimo_publico or {}).get("estado"), "ayuda": (self.ultimo_publico or {}).get("ayuda")},
                 "inicio": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(STARTED)), "python": sys.executable}
     def guardar_config(self, body: dict):
         allowed = {"tcsaRoot", "respaldoDir", "fallbackDir", "port", "fallbackEveryMinutes", "allowlist", "remotoEscritura", "tunelAlArrancar", "tunelHost", "openaiTunnelId", "openaiEscritura", "openaiTunelAlArrancar", "githubRespaldoRepo", "githubRespaldoRama", "githubPublicoRepo", "githubPublicoRama", "githubPublicoAuto"}
@@ -244,8 +250,26 @@ class Server(ThreadingHTTPServer):
         cur.update(body); write_json(p, cur); self.cfg = config.load()
         journal(config.data_dir() / "servicio.journal.jsonl", "CONFIG", {"claves": sorted(body)})
         return {"guardado": True, "config": self.cfg, "nota": "Cambiar el puerto requiere reiniciar el servicio."}
+    def github_ahora(self):
+        """Sincroniza GitHub (privado y publico) en segundo plano, sin esperar al ciclo."""
+        if getattr(self, "gh_ocupado", False): return
+        def tarea():
+            self.gh_ocupado = True
+            try:
+                if espejo_github.configurado(self.cfg):
+                    try: self.ultimo_github = espejo_github.sincronizar(self.cfg)
+                    except Exception as e: self.ultimo_github = {"estado": "ERROR", "error": str(e), "at": utc()}
+                    if self.ultimo_github.get("estado") != "OK": historial.registrar_error("respaldo:github", json.dumps(self.ultimo_github, ensure_ascii=False)[:600])
+                if self.cfg.get("githubPublicoAuto") and self.cfg.get("githubPublicoRepo") and espejo_github.token(True):
+                    try: self.ultimo_publico = espejo_github.publicar(self.cfg)
+                    except Exception as e: self.ultimo_publico = {"estado": "ERROR", "error": str(e), "at": utc()}
+                    if self.ultimo_publico.get("estado") != "OK": historial.registrar_error("github:publico", json.dumps(self.ultimo_publico, ensure_ascii=False)[:600])
+            finally:
+                self.gh_ocupado = False
+        threading.Thread(target=tarea, daemon=True).start()
     def respaldar(self):
         fb = fallback.exportar(self.cfg, self.estado())
+        self.gh_ocupado = True
         if espejo_github.configurado(self.cfg):  # 2o respaldo: GitHub privado
             try: self.ultimo_github = espejo_github.sincronizar(self.cfg)
             except Exception as e: self.ultimo_github = {"estado": "ERROR", "error": str(e), "at": utc()}
@@ -258,6 +282,7 @@ class Server(ThreadingHTTPServer):
                 historial.registrar_error("github:publico", json.dumps(self.ultimo_publico, ensure_ascii=False)[:600])
         try: self.ultimo_espejo = espejo.sincronizar(self.cfg)
         except Exception as e: self.ultimo_espejo = {"estado": "ERROR", "error": str(e), "at": utc()}
+        self.gh_ocupado = False
         if (self.ultimo_espejo or {}).get("estado") not in ("OK", None):
             historial.registrar_error("respaldo:drive", json.dumps(self.ultimo_espejo, ensure_ascii=False)[:600])
         journal(config.data_dir() / "servicio.journal.jsonl", "RESPALDO", {"fallback": fb.get("estado"),

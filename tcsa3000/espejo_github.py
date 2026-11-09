@@ -39,6 +39,14 @@ SECRETOS = re.compile(r"(sk-[A-Za-z0-9_\-]{20,}|github_pat_[A-Za-z0-9_]{20,}|ghp
 def token(publico: bool = False):
     return (credenciales.leer(CRED_PUB) if publico else None) or credenciales.leer(CRED)
 
+def _puede_escribir(tok: str, repo: str) -> tuple:
+    """Prueba real e inocua: crea un blob suelto (no cambia ninguna rama ni fichero)."""
+    st, d = _api(tok, "POST", "/repos/%s/git/blobs" % repo, {"content": base64.b64encode(b"TCSA3000: prueba de permiso\n").decode(), "encoding": "base64"})
+    return st in (201, 409), st, (d or {}).get("message")
+
+AYUDA_TOKEN = ("El token solo tiene permiso de LECTURA. En GitHub > Settings > Developer settings > Fine-grained tokens, edita el token: "
+               "Repository access = 'Only select repositories' marcando %s, y en Permissions > Contents elige 'Read and write'. Guarda y vuelve a pulsar Comprobar.")
+
 def configurado(cfg: dict) -> bool:
     return bool(cfg.get("githubRespaldoRepo")) and credenciales.leer(CRED) is not None
 
@@ -46,10 +54,15 @@ def comprobar(cfg: dict) -> dict:
     repo = cfg.get("githubRespaldoRepo") or ""; tok = credenciales.leer(CRED)
     if not repo or not tok: return {"estado": "SIN_CONFIGURAR", "ayuda": "Indica el repositorio privado (usuario/nombre) y guarda el token."}
     st, d = _api(tok, "GET", "/repos/" + repo)
+    if st == 404: return {"estado": "NO_EXISTE_O_SIN_ACCESO", "repo": repo, "ayuda": "No existe %s o el token no lo tiene marcado. Crealo (paso 1) y marcalo en el token (paso 2)." % repo}
     if st != 200: return {"estado": "SIN_ACCESO", "http": st, "detalle": (d or {}).get("message")}
-    if not d.get("private"): return {"estado": "BLOQUEADO_REPO_PUBLICO", "ayuda": "El repositorio debe ser PRIVADO: la continuidad contiene datos privados."}
-    perm = (d.get("permissions") or {})
-    return {"estado": "OK", "repo": d.get("full_name"), "privado": True, "puedeEscribir": bool(perm.get("push", True)), "rama": d.get("default_branch") or "main"}
+    if not d.get("private"): return {"estado": "BLOQUEADO_REPO_PUBLICO", "repo": repo,
+        "ayuda": "%s es PUBLICO. La copia completa lleva datos privados (proyectos, cierres, conversaciones): usa un repositorio PRIVADO distinto (p.ej. %s-CONTINUIDAD). Lo publico (normas e instrucciones) va en la parte 2." % (repo, repo.split("/")[-1])}
+    if cfg.get("githubPublicoRepo") and cfg["githubPublicoRepo"].lower() == repo.lower():
+        return {"estado": "MISMO_REPO", "ayuda": "El repositorio privado y el publico tienen que ser distintos."}
+    ok, st2, msg = _puede_escribir(tok, repo)
+    if not ok: return {"estado": "TOKEN_SOLO_LECTURA", "repo": repo, "http": st2, "detalle": msg, "ayuda": AYUDA_TOKEN % repo}
+    return {"estado": "OK", "repo": d.get("full_name"), "privado": True, "puedeEscribir": True, "rama": d.get("default_branch") or "main"}
 
 def sincronizar(cfg: dict) -> dict:
     c = comprobar(cfg)
@@ -126,16 +139,18 @@ def comprobar_publico(cfg: dict) -> dict:
     if not repo or not tok: return {"estado": "SIN_CONFIGURAR"}
     st, d = _api(tok, "GET", "/repos/" + repo)
     if st != 200: return {"estado": "SIN_ACCESO", "http": st, "detalle": (d or {}).get("message")}
+    ok, st2, msg = _puede_escribir(tok, repo)
+    if not ok: return {"estado": "TOKEN_SOLO_LECTURA", "repo": repo, "http": st2, "detalle": msg, "ayuda": AYUDA_TOKEN % repo}
     return {"estado": "OK", "repo": d.get("full_name"), "privado": bool(d.get("private")), "rama": d.get("default_branch") or "main",
             "aviso": "El repositorio es PRIVADO: lo publicado no sera visible para IAs sin acceso." if d.get("private") else None}
 
 def publicar(cfg: dict) -> dict:
+    archivos = _publicables(cfg)   # primero la comprobacion de secretos: nada sale si hay dudas
+    malos = [k for k, v in archivos.items() if SECRETOS.search(v.decode("utf-8", "replace"))]
+    if malos: return {"estado": "BLOQUEADO_POSIBLE_SECRETO", "ficheros": malos, "ayuda": "Revisa esos ficheros: parecen contener claves, tokens, tunnel_id o correos."}
     c = comprobar_publico(cfg)
     if c["estado"] != "OK": return c
     tok = token(True); repo = c["repo"]; rama = cfg.get("githubPublicoRama") or c["rama"]
-    archivos = _publicables(cfg)
-    malos = [k for k, v in archivos.items() if SECRETOS.search(v.decode("utf-8", "replace"))]
-    if malos: return {"estado": "BLOQUEADO_POSIBLE_SECRETO", "ficheros": malos, "ayuda": "Revisa esos ficheros: parecen contener claves, tokens, tunnel_id o correos."}
     st, ref = _api(tok, "GET", "/repos/%s/git/ref/heads/%s" % (repo, rama))
     if st != 200: return {"estado": "ERROR_REF", "http": st}
     head = ref["object"]["sha"]; st, commit = _api(tok, "GET", "/repos/%s/git/commits/%s" % (repo, head))
