@@ -66,6 +66,22 @@ class GitHub(Base):
     def test_sha_de_blob_como_git(self):
         self.assertEqual(espejo_github._blob_sha(b"hola\n"), "5c1b14949828006ed75a3e8858957f86a2f7e2eb")
 
+class GitHubPublico(Base):
+    def test_solo_normas_e_instrucciones_y_bloquea_secretos(self):
+        (self.r / "01-INSTRUCCIONES").mkdir(exist_ok=True)
+        (self.r / "01-INSTRUCCIONES/BOOTSTRAP-CHATGPT-CLAUDE-R5.txt").write_text("arranque r5", "utf-8")
+        pub = espejo_github._publicables(self.cfg)
+        self.assertIn("INSTRUCCIONES-MAESTRAS.md", pub); self.assertIn("docs/instrucciones/REGISTRO.md", pub)
+        self.assertFalse(any(k.startswith(("07-LISTA", "00-CHECKPOINTS", "03-PROYECTOS")) for k in pub))
+        self.assertTrue(espejo_github.SECRETOS.search("clave sk-" + "a" * 30))
+        self.assertTrue(espejo_github.SECRETOS.search("tunnel_" + "b" * 32))
+        self.assertFalse(espejo_github.SECRETOS.search("Drive TCSA (ID 1JOtra7bbQagW6efcrWtoUUsEahTm98gT)"))
+        cfg = dict(self.cfg, githubPublicoRepo="u/pub")
+        (self.r / "01-INSTRUCCIONES/BOOTSTRAP-CHATGPT-CLAUDE-R5.txt").write_text("token github_pat_" + "x" * 30, "utf-8")
+        with mock.patch.object(espejo_github, "token", return_value="t" * 40), \
+             mock.patch.object(espejo_github, "_api", return_value=(200, {"private": False, "full_name": "u/pub", "default_branch": "main"})):
+            self.assertEqual(espejo_github.publicar(cfg)["estado"], "BLOQUEADO_POSIBLE_SECRETO")
+
 class Instrucciones(Base):
     def test_versiones_con_nombre_y_fecha(self):
         (self.r / "01-INSTRUCCIONES").mkdir(exist_ok=True)

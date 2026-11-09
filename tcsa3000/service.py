@@ -78,8 +78,10 @@ class H(BaseHTTPRequestHandler):
             if u.path == "/api/openai-tunel": return self._send(200, openai_tunel.estado(cfg))
             if u.path == "/api/conexiones": return self._send(200, {"conexiones": conexiones.estado(cfg), "tunnelClient": openai_tunel.estado(cfg).get("version"),
                                                                "tunnelClientInstalado": openai_tunel.exe().is_file(), "cloudflaredInstalado": tunel.exe().is_file()})
-            if u.path == "/api/github": return self._send(200, {"config": {"repo": cfg.get("githubRespaldoRepo") or "", "rama": cfg.get("githubRespaldoRama") or ""},
-                                                           "tokenGuardado": credenciales.leer(espejo_github.CRED) is not None, "ultimo": self.server.ultimo_github})
+            if u.path == "/api/github": return self._send(200, {"config": {"repo": cfg.get("githubRespaldoRepo") or "", "rama": cfg.get("githubRespaldoRama") or "",
+                                                                      "repoPublico": cfg.get("githubPublicoRepo") or "", "publicoAuto": bool(cfg.get("githubPublicoAuto"))},
+                                                           "tokenGuardado": credenciales.leer(espejo_github.CRED) is not None, "tokenPublicoPropio": credenciales.leer(espejo_github.CRED_PUB) is not None,
+                                                           "ultimo": self.server.ultimo_github, "ultimoPublico": self.server.ultimo_publico})
             if u.path == "/api/espejo": return self._send(200, self.server.ultimo_espejo or {"estado": "AUN_NO_EJECUTADO"})
             if u.path == "/api/historial":
                 q = parse_qs(u.query)
@@ -176,6 +178,9 @@ class H(BaseHTTPRequestHandler):
                 v = (body.get("valor") or "").strip()
                 if len(v) < 20: raise ValueError("TOKEN_INVALIDO")
                 return self._send(200, credenciales.guardar(espejo_github.CRED, v, "Token del respaldo GitHub privado (Contents RW, un repositorio)"))
+            if u.path == "/api/github/comprobar-publico": return self._send(200, espejo_github.comprobar_publico(self.server.cfg))
+            if u.path == "/api/github/publicar":
+                self.server.ultimo_publico = espejo_github.publicar(self.server.cfg); return self._send(200, self.server.ultimo_publico)
             if u.path == "/api/github/sincronizar":
                 self.server.ultimo_github = espejo_github.sincronizar(self.server.cfg); return self._send(200, self.server.ultimo_github)
             if u.path == "/api/espejo/verificar": return self._send(200, espejo.verificar(cfg))
@@ -215,6 +220,7 @@ class Server(ThreadingHTTPServer):
         self._stop = threading.Event()
         self.ultimo_espejo = None
         self.ultimo_github = None
+        self.ultimo_publico = None
     def registrado(self, p):
         try:
             e = json.loads(Path(p).read_text("utf-8-sig")).get("mcpServers", {}).get("tcsa3000")
@@ -229,7 +235,7 @@ class Server(ThreadingHTTPServer):
                 "github": {"repo": self.cfg.get("githubRespaldoRepo") or None, "ultimo": (self.ultimo_github or {}).get("at"), "estado": (self.ultimo_github or {}).get("estado")},
                 "inicio": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(STARTED)), "python": sys.executable}
     def guardar_config(self, body: dict):
-        allowed = {"tcsaRoot", "respaldoDir", "fallbackDir", "port", "fallbackEveryMinutes", "allowlist", "remotoEscritura", "tunelAlArrancar", "tunelHost", "openaiTunnelId", "openaiEscritura", "openaiTunelAlArrancar", "githubRespaldoRepo", "githubRespaldoRama"}
+        allowed = {"tcsaRoot", "respaldoDir", "fallbackDir", "port", "fallbackEveryMinutes", "allowlist", "remotoEscritura", "tunelAlArrancar", "tunelHost", "openaiTunnelId", "openaiEscritura", "openaiTunelAlArrancar", "githubRespaldoRepo", "githubRespaldoRama", "githubPublicoRepo", "githubPublicoRama", "githubPublicoAuto"}
         bad = set(body) - allowed
         if bad: raise ValueError("CLAVES_NO_PERMITIDAS:" + ",".join(sorted(bad)))
         p = config.config_path(); cur = json.loads(p.read_text("utf-8-sig")) if p.exists() else {}
@@ -245,6 +251,11 @@ class Server(ThreadingHTTPServer):
             except Exception as e: self.ultimo_github = {"estado": "ERROR", "error": str(e), "at": utc()}
             if self.ultimo_github.get("estado") != "OK":
                 historial.registrar_error("respaldo:github", json.dumps(self.ultimo_github, ensure_ascii=False)[:600])
+        if self.cfg.get("githubPublicoAuto") and self.cfg.get("githubPublicoRepo"):
+            try: self.ultimo_publico = espejo_github.publicar(self.cfg)
+            except Exception as e: self.ultimo_publico = {"estado": "ERROR", "error": str(e), "at": utc()}
+            if self.ultimo_publico.get("estado") != "OK":
+                historial.registrar_error("github:publico", json.dumps(self.ultimo_publico, ensure_ascii=False)[:600])
         try: self.ultimo_espejo = espejo.sincronizar(self.cfg)
         except Exception as e: self.ultimo_espejo = {"estado": "ERROR", "error": str(e), "at": utc()}
         if (self.ultimo_espejo or {}).get("estado") not in ("OK", None):

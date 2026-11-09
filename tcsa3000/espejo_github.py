@@ -5,7 +5,7 @@ Orden para las IAs: 1) MCP tcsa3000  2) GitHub privado (conector de GitHub)  3) 
 - Lo que una IA cree en GitHub y no exista aqui (p.ej. un cierre nuevo) se trae a TCSA3000.
 - Token (fine-grained, solo ese repositorio, Contents: Read and write) cifrado con DPAPI: credencial github-respaldo-token."""
 from __future__ import annotations
-import base64, hashlib, json, os, urllib.error, urllib.request
+import base64, hashlib, json, os, re, urllib.error, urllib.request
 from pathlib import Path
 from . import config, credenciales
 from .storage import utc, write_json
@@ -32,6 +32,12 @@ def _api(token: str, metodo: str, ruta: str, cuerpo=None, timeout=120):
 
 def _blob_sha(data: bytes) -> str:
     return hashlib.sha1(b"blob %d\x00" % len(data) + data).hexdigest()
+
+CRED_PUB = "github-publico-token"
+SECRETOS = re.compile(r"(sk-[A-Za-z0-9_\-]{20,}|github_pat_[A-Za-z0-9_]{20,}|ghp_[A-Za-z0-9]{20,}|tunnel_[a-z0-9]{32}|BEGIN [A-Z ]*PRIVATE KEY|[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[a-z]{2,})")
+
+def token(publico: bool = False):
+    return (credenciales.leer(CRED_PUB) if publico else None) or credenciales.leer(CRED)
 
 def configurado(cfg: dict) -> bool:
     return bool(cfg.get("githubRespaldoRepo")) and credenciales.leer(CRED) is not None
@@ -95,3 +101,58 @@ def sincronizar(cfg: dict) -> dict:
     write_json(_man(), {"actualizado": utc(), "repo": repo, "ficheros": {r: True for r in (vistos | set(remoto))}})
     return {"estado": "OK", "at": utc(), "repo": repo, "commit": commit_sha, "subidos": len(subidos), "importados": len(importados),
             "omitidosPorTamano": omitidos, "detalle": {"subidos": subidos[:30], "importados": importados[:30]}}
+
+
+# ------------------------------------------------------------------ parte PUBLICA (solo normas e instrucciones, saneadas)
+def _publicables(cfg: dict) -> dict:
+    """ruta en el repositorio publico -> bytes. Solo normas e instrucciones: nunca continuidad, LISTA, checkpoints ni datos."""
+    from . import instrucciones
+    r = Path(cfg["tcsaRoot"]); out = {}
+    for f in ("INSTRUCCIONES-MAESTRAS.md", "MANIFEST-INSTRUCCIONES.json"):
+        if (r / f).is_file(): out[f] = (r / f).read_bytes()
+    reg = instrucciones.listar(cfg)["instrucciones"]
+    filas = ["# Instrucciones de proyecto (publicadas por TCSA3000)", "", "| Proyecto | Instrucciones | Version | Fecha | Estado | Fichero |", "|---|---|---|---|---|---|"]
+    for i in reg:
+        p = r / i["archivo"]
+        if not p.is_file(): continue
+        nombre = Path(i["archivo"]).name
+        out["docs/instrucciones/" + nombre] = p.read_bytes()
+        filas.append("| %s | %s | v%d | %s | %s | %s |" % (i["proyecto"], i["nombre"], i["version"], i["fecha"], i["estado"], nombre))
+    out["docs/instrucciones/REGISTRO.md"] = ("\n".join(filas) + "\n").encode("utf-8")
+    return out
+
+def comprobar_publico(cfg: dict) -> dict:
+    repo = cfg.get("githubPublicoRepo") or ""; tok = token(True)
+    if not repo or not tok: return {"estado": "SIN_CONFIGURAR"}
+    st, d = _api(tok, "GET", "/repos/" + repo)
+    if st != 200: return {"estado": "SIN_ACCESO", "http": st, "detalle": (d or {}).get("message")}
+    return {"estado": "OK", "repo": d.get("full_name"), "privado": bool(d.get("private")), "rama": d.get("default_branch") or "main",
+            "aviso": "El repositorio es PRIVADO: lo publicado no sera visible para IAs sin acceso." if d.get("private") else None}
+
+def publicar(cfg: dict) -> dict:
+    c = comprobar_publico(cfg)
+    if c["estado"] != "OK": return c
+    tok = token(True); repo = c["repo"]; rama = cfg.get("githubPublicoRama") or c["rama"]
+    archivos = _publicables(cfg)
+    malos = [k for k, v in archivos.items() if SECRETOS.search(v.decode("utf-8", "replace"))]
+    if malos: return {"estado": "BLOQUEADO_POSIBLE_SECRETO", "ficheros": malos, "ayuda": "Revisa esos ficheros: parecen contener claves, tokens, tunnel_id o correos."}
+    st, ref = _api(tok, "GET", "/repos/%s/git/ref/heads/%s" % (repo, rama))
+    if st != 200: return {"estado": "ERROR_REF", "http": st}
+    head = ref["object"]["sha"]; st, commit = _api(tok, "GET", "/repos/%s/git/commits/%s" % (repo, head))
+    st, arbol = _api(tok, "GET", "/repos/%s/git/trees/%s?recursive=1" % (repo, commit["tree"]["sha"]))
+    remoto = {e["path"]: e["sha"] for e in (arbol or {}).get("tree", []) if e.get("type") == "blob"}
+    entradas = []
+    for ruta, data in archivos.items():
+        if remoto.get(ruta) == _blob_sha(data): continue
+        st, b = _api(tok, "POST", "/repos/%s/git/blobs" % repo, {"content": base64.b64encode(data).decode(), "encoding": "base64"})
+        if st != 201: return {"estado": "ERROR_SUBIENDO", "http": st, "ruta": ruta}
+        entradas.append({"path": ruta, "mode": "100644", "type": "blob", "sha": b["sha"]})
+    if not entradas:
+        return {"estado": "OK", "at": utc(), "repo": repo, "publicados": 0, "nota": "Ya estaba al dia."}
+    st, t = _api(tok, "POST", "/repos/%s/git/trees" % repo, {"base_tree": commit["tree"]["sha"], "tree": entradas})
+    if st != 201: return {"estado": "ERROR_ARBOL", "http": st}
+    st, nc = _api(tok, "POST", "/repos/%s/git/commits" % repo, {"message": "TCSA3000: publica normas e instrucciones (%d ficheros)" % len(entradas), "tree": t["sha"], "parents": [head]})
+    if st != 201: return {"estado": "ERROR_COMMIT", "http": st}
+    st, _ = _api(tok, "PATCH", "/repos/%s/git/refs/heads/%s" % (repo, rama), {"sha": nc["sha"], "force": False})
+    if st != 200: return {"estado": "ERROR_REF_UPDATE", "http": st}
+    return {"estado": "OK", "at": utc(), "repo": repo, "commit": nc["sha"], "publicados": len(entradas), "detalle": [e["path"] for e in entradas]}
