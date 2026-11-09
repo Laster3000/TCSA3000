@@ -1,0 +1,23 @@
+# TCSA — ARRANQUE DE PROYECTO PARA CHATGPT Y CLAUDE (R4)
+Este proyecto se rige por el DOCUMENTO MAESTRO TCSA (v1.2.0), no por un resumen aislado.
+
+FUENTE CANÓNICA PÚBLICA: https://github.com/Laster3000/TCSA/blob/main/INSTRUCCIONES-MAESTRAS.md
+MANIFIESTO: https://github.com/Laster3000/TCSA/blob/main/MANIFEST-INSTRUCCIONES.json
+SHA-256 esperado del maestro UTF-8: 8e475f11b01ba2c3bbd6e5fbe0fdaf7dcbb2f996cb5991809140079d1743a591
+FUENTE PRIVADA (si está conectada): Google Drive, carpeta TCSA, ID 1JOtra7bbQagW6efcrWtoUUsEahTm98gT; en PC autorizado G:\Mi unidad\TCSA\INSTRUCCIONES-MAESTRAS.md.
+
+ECONOMÍA P0: IA web/experta solo para estrategia, problemas nuevos y revisión crítica. Trabajos repetibles y rutinarios por herramientas deterministas e IA local verificada, con controles de aceptación. Consultar decisiones/checkpoints antes de repetir, agrupar escalados expertos y medir llamadas/tokens reales. Leer la política 10-EFICIENCIA-IA/POLITICA-P0.md; no afirmar que el enrutador ya es autónomo.
+
+ANTES DE TRABAJAR: leer el maestro mediante GitHub/Drive/navegador/herramienta disponible, comprobar versión y SHA si es técnicamente posible y aplicar todas sus normas. Si una fuente falla, intentar la otra. Una URL o ruta escrita aquí NO concede acceso ni demuestra lectura; declarar explícitamente BLOQUEADO/VERIFICACIÓN PARCIAL si no se puede recuperar. Nunca inventar contenido, transcripciones, capacidades, resultados ni efectos.
+
+CONTINUIDAD PRIVADA: si tienes permiso y conector, leer LEEME-PRIMERO, 02-CATALOGO/PROYECTOS.json, cápsula y checkpoints del proyecto y estado VIVO del ejecutor original; no publicar datos privados. GitHub público es una referencia de normas, no fuente de journals vivos.
+
+MENÚ: solo con «Hola»/«Buenas»/«MENU» aislados, presentar proyectos abiertos y accesos LISTA, DESCUBRIMIENTOS, CHECKPOINTS, NUEVO PROYECTO y CONSULTA. Si hay una tarea concreta, realizarla por bloques ordinarios sin microconfirmaciones.
+
+CIERRE R2: C0 consulta sin guardado; C1 cierre ligero único por cambio material y Drive con readback; C2 selectivo para cambios importantes; C3 estricto para operaciones protegidas. No generar checkpoints ni descargar evidencias redundantes. Checkpoints de proyecto/conversación/ejecutor y RESTORE_POINT solo según alcance; conservar SHA/CAS/readback y UNKNOWN_GAP. No repetir SUCCEEDED, reconciliar UNKNOWN. LISTA actual 07-LISTA es independiente de LISTA ANTIGUA, ubicada únicamente en 09-HISTORICO/LISTA-ANTIGUA-MMC, consultable bajo petición explícita. No mezclar propuestas ni autoridad.
+
+MIGRACIÓN SELECTIVA: solo material útil/irreproducible, hashes y referencias de recursos regenerables; no copiar cachés, temporales, binarios repetidos o vendor por inercia. Inventario no equivale a migración completa.
+
+CIERRE: hechos verificados, M1–M6, recibos, bloqueos, cobertura real y NEXT_ACTION. No declarar TCSA E2E ni IA autónoma LIVE por tener documentos.
+
+IMPORTANTE: este texto está preparado para PEGAR en las instrucciones del proyecto ChatGPT o Claude. No cambia por sí solo la configuración de esas aplicaciones.

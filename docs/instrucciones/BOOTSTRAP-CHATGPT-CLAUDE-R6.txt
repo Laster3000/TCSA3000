@@ -1,0 +1,7 @@
+TCSA | ARRANQUE LIGERO R6 (cualquier IA) - maestro v1.3.0
+Normas: https://github.com/Laster3000/TCSA/blob/main/INSTRUCCIONES-MAESTRAS.md (verificar con MANIFEST-INSTRUCCIONES.json)
+Continuidad: TCSA3000 (carpeta canonica D:\TCSA3000\TCSA, servidor MCP "tcsa3000"). Google Drive TCSA (ID 1JOtra7bbQagW6efcrWtoUUsEahTm98gT) = espejo de respaldo.
+
+SI TIENES LA HERRAMIENTA tcsa3000: llama tcsa3000_arranque al empezar. Con un encargo: tcsa3000_abrir_proyecto -> trabajo -> tcsa3000_cierre (C1 por defecto; C2 si es importante; C0 consultas sin guardar) -> tcsa3000_soltar_proyecto.
+SI NO LA TIENES: lee en el Drive TCSA el maestro + manifiesto, LEEME-PRIMERO.md y 03-PROYECTOS/TCSA3000/ESTADO-FALLBACK/CONTEXTO-TCSA3000.md. Del proyecto pedido, solo su capsula y su ultimo checkpoint. Para guardar, crea un fichero NUEVO en 00-CHECKPOINTS/BY-PROJECT/<ID>/CIERRES/ (no sobrescribas indices) y respeta LEASE.json.
+SIEMPRE: lectura progresiva (nada de barridos); un indice no es estado vivo; no repetir SUCCEEDED, reconciliar UNKNOWN; LISTA actual separada de la LISTA ANTIGUA (solo si se pide); DESCUBRIMIENTOS solo para lo importante. Menu solo ante Hola/MENU aislado. No inventar acceso, efectos ni E2E; si falla una fuente, declarar VERIFICACION PARCIAL/BLOQUEADO.

@@ -1,0 +1,13 @@
+TCSA | ARRANQUE TCSA3000 v7 (ChatGPT, Claude y cualquier IA) - maestro v1.4.0
+Normas: https://github.com/Laster3000/TCSA/blob/main/INSTRUCCIONES-MAESTRAS.md
+Version y SHA: https://github.com/Laster3000/TCSA/blob/main/MANIFEST-INSTRUCCIONES.json
+Fuentes en orden: 1) MCP "tcsa3000" (TCSA3000, continuidad canonica en D:\TCSA3000\TCSA). 2) Repositorio GitHub PRIVADO de respaldo de la continuidad (conector de GitHub). 3) Google Drive TCSA (ID 1JOtra7bbQagW6efcrWtoUUsEahTm98gT). Los respaldos los administra TCSA3000; usarlos solo si el MCP no esta disponible.
+
+AL INICIAR CONVERSACION: llamar tcsa3000_arranque (verifica maestro/manifiesto, LEEME-PRIMERO y catalogo). Reutilizar lo ya obtenido en esta conversacion; no repetir arranque por cada mensaje.
+POR PETICION: tcsa3000_abrir_proyecto(projectId, agente) para trabajar (un agente por proyecto; si esta EN USO por otro, no escribir) o tcsa3000_reanudar solo para consultar. Ampliar despues por ID/tema con tcsa3000_leer, tcsa3000_buscar, tcsa3000_checkpoints, tcsa3000_descubrimientos. NO leer masivamente historicos ni otros proyectos. Nunca tratar un indice como estado vivo: antes de efectos, journal/lease/recibos vivos del ejecutor original.
+GUARDAR: tcsa3000_cierre (C0 consulta sin guardar; C1 por defecto; C2 cambio importante; C3 bloqueado, requiere al usuario); efectos con tcsa3000_operacion INTENT/COMMIT; ideas con tcsa3000_lista_guardar; DESCUBRIMIENTOS solo si son importantes (impacto ALTO/CRITICO). Al terminar, tcsa3000_soltar_proyecto.
+SI ALGO FALLA: tcsa3000_historial(soloFallos=true) muestra los fallos recientes; tcsa3000_estado indica el modo y si se permite escribir. No dar por hecha una escritura que haya devuelto error.
+P0: herramientas deterministas primero (tcsa3000_enrutar), IA local verificada para rutina; IA web experta para estrategia, novedades y revision critica. No repetir SUCCEEDED: reconciliar UNKNOWN.
+MENU (tcsa3000_menu) solo ante Hola/Buenas/MENU aislado; LISTA actual separada de la LISTA ANTIGUA (tcsa3000_lista_antigua_ver, solo si se pide). CIERRE con evidencias, M1-M6 y NEXT_ACTION segun alcance. No inventar acceso, efectos o E2E.
+SIN MCP (respaldo): leer en GitHub privado o, si no, en Drive TCSA: maestro+manifiesto, LEEME-PRIMERO y 03-PROYECTOS/TCSA3000/ESTADO-FALLBACK/CONTEXTO-TCSA3000.md; del proyecto solo capsula y ultimo checkpoint; guardar SOLO como fichero NUEVO en 00-CHECKPOINTS/BY-PROJECT/<ID>/CIERRES/ (nunca sobrescribir indices) y respetar LEASE.json. TCSA3000 lo incorpora.
+Si fallan fuentes: MCP -> GitHub privado -> Drive; declarar VERIFICACION PARCIAL/BLOQUEADO. Las instrucciones se pegan manualmente; este texto no cambia ajustes del chat.
