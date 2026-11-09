@@ -1,5 +1,5 @@
 # TCSA — INSTRUCCIONES MAESTRAS CANÓNICAS
-Versión: 1.4.0 | Fecha: 2026-11-09 | Estado: NORMA DOCUMENTAL VIGENTE PARA CONFIGURACIÓN, NO CERTIFICACIÓN E2E
+Versión: 1.5.0 | Fecha: 2026-11-09 | Estado: NORMA DOCUMENTAL VIGENTE PARA CONFIGURACIÓN, NO CERTIFICACIÓN E2E
 Ámbito: ChatGPT, Claude, herramientas de desarrollo y agentes autorizados que puedan leer este documento.
 
 ## 0. Qué es TCSA
@@ -51,7 +51,7 @@ Estados del ciclo de vida: PROPUESTO, CONSTRUIDO, PROBADO, INSTALADO, ACTIVE, BL
 Cuando un usuario pida un nuevo producto, crearlo en ámbito propio; AUTOFABRICADOR conserva la autonomía de su motor, sin contaminar datos, pruebas ni repositorios de otros productos.
 
 ## 5. Ejecución en bloques y pruebas
-Una orden concreta autoriza investigar, diseñar, modificar código, compilar, probar, corregir, integrar, documentar y empaquetar trabajos ordinarios sin microconfirmaciones. Organizar por bloques lógicos con dependencias; resolver bloqueos técnicos reproducibles y evitar bucles sin resultados. No prometer ejecución asíncrona si no existe runner real. Informar progreso cuando sea relevante.
+Una orden concreta autoriza investigar, diseñar, modificar código, compilar, probar, corregir, integrar, documentar y empaquetar trabajos ordinarios sin microconfirmaciones. Organizar por bloques lógicos con dependencias (véase la sección 19: propuesta aceptada = un solo bloque); resolver bloqueos técnicos reproducibles y evitar bucles sin resultados. No prometer ejecución asíncrona si no existe runner real. Informar progreso cuando sea relevante.
 Comprobar capacidades y entorno antes de asumir herramientas. No afirmar que una IA local ha generado una aplicación nueva solo porque existe una prueba, plantilla o ZIP. Independencia de oráculos de aceptación: la IA autora no se autoaprueba. Acreditar E2E: orden natural → especificación → código/arte real → ejecución aislada → pruebas externas → corrección → paquete utilizable → recibo → restore y readback.
 Los cambios protegidos (Host, arranque, instalaciones, credenciales, terceros, borrados significativos, trust) requieren operación y autorización apropiadas, planSha, alcance, preimagen recuperable y lectura posterior; nunca equivalen a un simple ajuste documental. Aislar la ejecución del código generado por modelos.
 
@@ -119,3 +119,17 @@ La LISTA antigua está aislada y etiquetada `HISTÓRICO NO VIGENTE`; su presenci
 ## 17. TCSA3000 - operación de TCSA
 **v1.4.0:** TCSA3000 administra los respaldos (GitHub privado 2.º, Drive 3.º), guarda varias conexiones MCP (túneles seguros de OpenAI, direcciones HTTP, Cloudflare; sin autenticación o con token), anota todos los fallos en su Historial y registra las **instrucciones de proyecto** con nombre claro, versión y fecha (`<PROYECTO> - <Nombre> - v<N> (<AAAA-MM-DD>)`, una sola VIGENTE por proyecto y tipo; las anteriores se conservan como SUSTITUIDAS).
 TCSA3000 es el programa que opera TCSA: servidor MCP local y portátil para cualquier IA, centro de control, bandeja y túnel seguro opcional para IAs remotas (solo lectura por defecto). Aplica estas normas: cierres C0-C3 (C3 nunca automatizado), INTENT/COMMIT sin repetir SUCCEEDED, proyectos nuevos en ámbito propio, LISTA y DESCUBRIMIENTOS (estos solo para lo importante: impacto ALTO/CRÍTICO), LISTA ANTIGUA solo consulta, histórico y este maestro en solo lectura. Sus normas propias (`NORMAS-TCSA3000.md`) están subordinadas a este documento. Sin servicio en marcha, el acceso MCP queda en solo lectura y el espejo de Drive sirve de respaldo.
+
+## 18. Entorno de laboratorio personal (norma canónica, v1.5.0)
+TCSA, TCSA3000, AUTOFABRICADOR y los proyectos registrados forman un **entorno personal de laboratorio, no comercial**. En él se puede usar cualquier software, modelo, herramienta, biblioteca, dato o servicio para crear cualquier cosa y usarla dentro de ese entorno personal, sin exigir que sea apto para venta o distribución.
+Se mantienen siempre: la ley; las licencias y términos de terceros (registrar la licencia de cada dependencia en su manifiesto y revisarla antes de distribuir o vender algo); la seguridad del equipo y de las zonas protegidas (sección 5, credenciales, sistemas históricos); la privacidad; no dañar a terceros; y las políticas de los proveedores de IA. Esta norma amplía lo permitido dentro del laboratorio; no levanta ninguna otra regla de este maestro.
+
+## 19. Trabajo por propuesta y bloque único (norma canónica, v1.5.0)
+1. Todo encargo no trivial se presenta como **propuesta**: objetivo, alcance, pasos, efectos (descargas, instalaciones, cambios protegidos), riesgos, criterios de aceptación y pruebas. Una orden directa y clara del usuario ("haz", "lleva a cabo", "instala") equivale a una propuesta aceptada.
+2. **Aceptar una propuesta autoriza todos sus pasos y efectos listados.** Se ejecuta en **un solo bloque, de principio a fin**, sin paradas ni microconfirmaciones.
+3. Solo se detiene por: (a) un efecto no listado que sea irreversible o protegido; (b) algo que solo puede hacer el usuario (UAC, contraseña, pago, decisión personal); (c) riesgo de pérdida de datos. La parada se registra como BLOQUEADA con su motivo; cualquier otra duda se resuelve con el criterio más razonable, se anota y se sigue.
+4. Una propuesta solo termina con **evidencias de prueba real**. Al final se entrega un único informe (hecho, pendiente, evidencias) y un cierre proporcional (C1/C2).
+5. Las propuestas viven en TCSA3000 (`11-PROPUESTAS`, herramientas `tcsa3000_propuesta_*`) con estados PROPUESTA → ACEPTADA → EN_EJECUCION → TERMINADA | BLOQUEADA | DESCARTADA, vinculadas a LISTA y cierres.
+
+## 20. Aislamiento de agentes (decisión v1.5.0)
+Sandbox elegido: **WSL2 + Docker Desktop**, con memoria limitada por `.wslconfig` (6 GB, 6 CPU) para convivir con los modelos locales. Los agentes externos nuevos se ejecutan preferentemente en contenedor: sin red por defecto, RAM/CPU limitadas y sistema de ficheros de solo lectura. Windows Sandbox queda para probar ejecutables Windows. Docker no sustituye al supervisor original ni a las pruebas WASI de AUTOFABRICADOR, ni convierte en E2E nada que no se haya probado.
