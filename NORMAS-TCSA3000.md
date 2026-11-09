@@ -1,5 +1,5 @@
 # NORMAS DE TCSA3000 (directrices propias del agente)
-Version: 6
+Version: 7
 Fecha: 2026-11-09 (maestro TCSA v1.5.0)
 Estas normas rigen TCSA3000. Las normas TCSA maestras (INSTRUCCIONES-MAESTRAS.md, protocolo de cierre R2) prevalecen siempre.
 TCSA3000 sustituye al TCSA antiguo sin perder nada: la continuidad CANONICA vive en TCSA3000/TCSA (migrada 180/180 por SHA-256) y la carpeta TCSA de Drive es solo su ESPEJO de respaldo.
@@ -40,3 +40,4 @@ TCSA3000 sustituye al TCSA antiguo sin perder nada: la continuidad CANONICA vive
 
 ## Windows limpio (2026-11-09)
 30. Con TCSA3000.exe o AUTOFABRICADOR.exe cerrados, Windows queda sin su carga: sus servicios, tuneles, vigilantes y procesos solo viven mientras el icono esta abierto; si el icono se cierra (o falla) se apagan solos en menos de un minuto. No hay opcion "quitar solo el icono". Nada de TCSA ni AUTOFABRICADOR arranca con Windows. Docker no arranca con Windows: se enciende bajo demanda y se apaga (con la VM de WSL si no hay otra distro en uso) al cerrar AUTOFABRICADOR si lo encendio el. Sin servicio, las IAs siguen leyendo TCSA en modo degradado de solo lectura.
+31. Los menus de TCSA3000 y AUTOFABRICADOR se abren en su PROPIA ventana de aplicacion (Microsoft Edge en modo --app con un perfil propio de cada programa), nunca como pestana del navegador del usuario. Si la ventana ya esta abierta se trae al frente. Al apagar el programa (o cerrarse su icono) su ventana se cierra; solo se cierran los procesos de ese perfil, nunca el navegador del usuario.

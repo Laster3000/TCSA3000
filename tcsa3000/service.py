@@ -31,7 +31,7 @@ class H(BaseHTTPRequestHandler):
         b = body if isinstance(body, bytes) else (json.dumps(body, ensure_ascii=False, indent=1).encode("utf-8") if not isinstance(body, str) else body.encode("utf-8"))
         self.send_response(code); self.send_header("Content-Type", ctype); self.send_header("Content-Length", str(len(b)))
         self.send_header("Cache-Control", "no-store"); self.send_header("X-Content-Type-Options", "nosniff")
-        self.send_header("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'")
+        self.send_header("Content-Security-Policy", "default-src 'self'; img-src 'self' data:; script-src 'self' 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'")
         for k, v in (extra or {}).items(): self.send_header(k, v)
         self.end_headers(); self.wfile.write(b)
     def _token_ok(self) -> bool:
@@ -317,6 +317,11 @@ class Server(ThreadingHTTPServer):
                 sin_icono = 0 if bandeja.viva() else sin_icono + 1
                 if sin_icono >= 3:  # TCSA3000.exe cerrado: Windows limpio (las IAs quedan en solo lectura)
                     journal(config.data_dir() / "servicio.journal.jsonl", "APAGADO_BANDEJA_CERRADA", {"pid": os.getpid()})
+                    try:
+                        from . import ventana
+                        ventana.cerrar()  # la ventana del centro de control tambien se cierra (Windows limpio)
+                    except Exception:
+                        pass
                     threading.Thread(target=self.apagar, daemon=True).start()
                     return
             if time.time() >= nxt:

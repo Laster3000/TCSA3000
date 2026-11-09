@@ -45,6 +45,11 @@ def arrancar(cfg):
     return {"servicio": "NO_ARRANCO", "ayuda": "Revisa data/servicio.journal.jsonl y que el puerto %d este libre" % cfg["port"]}
 
 def parar(cfg):
+    try:
+        from . import ventana
+        ventana.cerrar()  # cierra la ventana del centro de control (solo el perfil de TCSA3000)
+    except Exception:
+        pass
     if not _health(cfg): return {"servicio": "YA_PARADO"}
     try: _post(cfg, "/api/apagar")
     except Exception: pass
@@ -75,8 +80,9 @@ def respaldo(cfg):
 
 def panel(cfg, pestana=""):
     if not _health(cfg): arrancar(cfg)
-    webbrowser.open("http://127.0.0.1:%d/panel?t=%s%s" % (cfg["port"], credenciales.token_servicio(), ("#" + pestana) if pestana else ""))
-    return {"panel": "ABIERTO"}
+    from . import ventana  # ventana de aplicacion propia (Edge --app, perfil de TCSA3000), no una pestana del navegador
+    r = ventana.abrir("http://127.0.0.1:%d/panel?t=%s" % (cfg["port"], credenciales.token_servicio()), pestana)
+    return {"panel": "ABIERTO", **r}
 
 def main(argv=None):
     a = argv if argv is not None else sys.argv[1:]
