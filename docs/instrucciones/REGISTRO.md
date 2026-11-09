@@ -2,7 +2,8 @@
 
 | Proyecto | Instrucciones | Version | Fecha | Estado | Fichero |
 |---|---|---|---|---|---|
-| TCSA | Arranque TCSA3000 (cualquier IA) | v7 | 2026-11-09 | VIGENTE | TCSA - Arranque TCSA3000 (cualquier IA) - v7 (2026-11-09).txt |
+| TCSA | Arranque TCSA3000 (cualquier IA) | v8 | 2026-11-09 | VIGENTE | TCSA - Arranque TCSA3000 (cualquier IA) - v8 (2026-11-09).txt |
+| TCSA | Arranque TCSA3000 (cualquier IA) | v7 | 2026-11-09 | SUSTITUIDA | TCSA - Arranque TCSA3000 (cualquier IA) - v7 (2026-11-09).txt |
 | TCSA | Arranque TCSA3000 corto (cualquier IA) | v6 | 2026-11-09 | SUSTITUIDA | BOOTSTRAP-CHATGPT-CLAUDE-R6.txt |
 | TCSA | Arranque ligero TCSA (ChatGPT y Claude) | v5 | 2026-11-09 | SUSTITUIDA | BOOTSTRAP-CHATGPT-CLAUDE-R5.txt |
 | TCSA | Arranque TCSA (ChatGPT y Claude) | v4 | 2026-11-09 | SUSTITUIDA | BOOTSTRAP-CHATGPT-CLAUDE-R4.txt |
