@@ -214,8 +214,8 @@ class OpenAITunel(Base):
         from tcsa3000 import openai_tunel
         self.assertEqual(openai_tunel.iniciar(self.cfg)["estado"], "FALTA_TUNNEL_CLIENT")
         self.assertIsNone(openai_tunel.TUNNEL_ID.fullmatch("tunnel_corto"))
-        self.assertTrue(openai_tunel.TUNNEL_ID.fullmatch("tunnel_6ad36d189c8c81919a5aed0327373c09"))
-        self.assertTrue(openai_tunel.TUNNEL_ID.fullmatch("tunnel_abcd_6ad36d189c8c81919a5aed0327373c09"))
+        self.assertTrue(openai_tunel.TUNNEL_ID.fullmatch("tunnel_0123456789abcdef0123456789abcdef"))
+        self.assertTrue(openai_tunel.TUNNEL_ID.fullmatch("tunnel_abcd_0123456789abcdef0123456789abcdef"))
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
